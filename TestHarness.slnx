@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="HeadlessClient/HeadlessClient.csproj" />
+  <Project Path="HeadlessClient.Smoke/HeadlessClient.Smoke.csproj" />
+  <Project Path="HarnessHost/HarnessHost.csproj" />
+  <Project Path="HarnessHost.Smoke/HarnessHost.Smoke.csproj" />
+</Solution>

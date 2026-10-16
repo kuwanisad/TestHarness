@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>TestHarness.HarnessHost</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 테스트 대상들이 접속해 오는 gRPC 서버를 띄우므로 ASP.NET Core가 필요하다. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 서버(Grpc.AspNetCore 2.63.0 / Google.Protobuf 3.27.2)와 같은 버전대. -->
+    <PackageReference Include="Grpc.AspNetCore" Version="2.63.0" />
+    <PackageReference Include="Google.Protobuf" Version="3.27.2" />
+    <PackageReference Include="Grpc.Tools" Version="2.63.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 원본 proto. 하네스는 받는 쪽이라 서버 스텁만 만든다. -->
+    <Protobuf Include="..\Protos\harness.proto" Link="Protos\harness.proto" GrpcServices="Server" />
+  </ItemGroup>
+
+  <!--
+    원본 proto를 Server 쪽으로 복사한다(방향: TestHarness → Server, 반대 방향은 없음).
+    Server 쪽 Harness.Contracts는 이 사본으로 코드를 생성하고, 기존 Contracts들처럼 Unity로
+    생성 코드를 넘긴다. 사본은 Server 저장소에 커밋돼서 Server는 TestHarness 없이도 빌드된다.
+    Server 폴더가 없는 배치(TestHarness만 받은 경우)면 조용히 건너뛴다.
+  -->
+  <PropertyGroup>
+    <HarnessProtoCopyDir>$(ServerSharedDir)\Test\Harness.Contracts\Protos</HarnessProtoCopyDir>
+  </PropertyGroup>
+  <Target Name="CopyHarnessProtoToServer" AfterTargets="Build" Condition="Exists('$(ServerSharedDir)')">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\Protos\harness.proto"
+          DestinationFolder="$(HarnessProtoCopyDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

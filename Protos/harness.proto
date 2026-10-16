@@ -1,0 +1,110 @@
+// harness.proto - 테스트 하네스 ↔ 테스트 대상(서버/Unity) 사이의 제어 프로토콜.
+//
+// ※ 원본은 TestHarness/Protos/harness.proto 하나뿐이다. 다른 곳(Server/.../Harness.Contracts/Protos)에
+//    있는 건 TestHarness 빌드 때 자동으로 복사된 사본이니 거기서 고치지 말 것 - 다음 빌드에 덮어써진다.
+//    고친 뒤엔 아래 ProtocolVersion.PROTOCOL_VERSION_CURRENT 값도 올린다 - 한쪽만 다시 빌드해서
+//    어긋나면 접속 단계에서 바로 거부되게.
+//
+// 흐름:
+//   1. 테스트 대상이 HARNESS_ADDRESS(환경 변수)로 하네스에 접속해 Attach 스트림 하나를 연다.
+//   2. 첫 메시지로 Hello를 보낸다(누구인지, 받을 수 있는 명령 목록).
+//   3. 이후 하네스는 Command를 보내고, 대상은 CommandResult로 답한다. 대상 안에서 일어난 일은
+//      AgentEvent로 아무 때나 올려 보낸다.
+//   연결이 끊기면 그 대상은 하네스 입장에서 "사라진" 것으로 본다.
+//
+// 명령 이름 규칙: "<영역>.<동작>" 소문자 (예: "agent.status", "shop.buy").
+// 명령마다 메시지를 따로 정의하지 않는다 - 디버그 명령을 추가할 때 proto를 고칠 필요가 없게.
+
+syntax = "proto3";
+
+package harness;
+
+option csharp_namespace = "Harness.Protocol";
+
+import "google/protobuf/struct.proto";
+
+// 프로토콜 버전 - 상수를 각 프로젝트 코드에 따로 적지 않고 여기 한 곳에만 둔다(생성 코드로 양쪽에 전달).
+// 메시지 구조를 바꾸면 CURRENT 값을 올릴 것.
+enum ProtocolVersion {
+  PROTOCOL_VERSION_UNSPECIFIED = 0;
+  PROTOCOL_VERSION_CURRENT = 1;
+}
+
+service HarnessControl {
+  // 테스트 대상 → 하네스 접속. 연결 하나를 테스트 내내 유지한다.
+  rpc Attach(stream AgentMessage) returns (stream HarnessMessage);
+}
+
+// 테스트 대상 → 하네스
+message AgentMessage {
+  oneof payload {
+    Hello hello = 1;
+    CommandResult result = 2;
+    AgentEvent event = 3;
+  }
+}
+
+// 하네스 → 테스트 대상
+message HarnessMessage {
+  oneof payload {
+    Command command = 1;
+    // Hello를 받은 하네스의 응답. accepted=false면 대상은 연결을 닫는다.
+    Welcome welcome = 2;
+  }
+}
+
+message Hello {
+  int32 protocol_version = 1;
+  // HARNESS_NAME 환경 변수 값. 하네스가 프로세스를 띄울 때 정해준다(예: "LobbyServer", "client-1").
+  string name = 2;
+  // 프로세스 종류(예: "LobbyServer", "UnityClient", "UnityIngameServer").
+  string process_kind = 3;
+  int32 pid = 4;
+  repeated CommandInfo commands = 5;
+}
+
+message CommandInfo {
+  string name = 1;
+  string description = 2;
+  repeated ParameterInfo parameters = 3;
+}
+
+message ParameterInfo {
+  string name = 1;
+  // 사람이 읽는 타입 이름(예: "int", "string", "bool").
+  string type = 2;
+  bool optional = 3;
+}
+
+message Welcome {
+  bool accepted = 1;
+  // 거부 사유(예: 프로토콜 버전 불일치, 같은 이름이 이미 접속 중).
+  string reason = 2;
+}
+
+message Command {
+  // 하네스가 붙이는 번호 - 결과와 짝을 맞춘다.
+  string id = 1;
+  string name = 2;
+  google.protobuf.Struct args = 3;
+}
+
+message CommandResult {
+  string id = 1;
+  // 명령 함수가 예외 없이 끝났는지. 클라 명령의 ok는 "요청을 보냈다"까지만 뜻한다 -
+  // 실제로 됐는지는 이벤트로 판정한다.
+  bool ok = 2;
+  // 조회 명령의 반환값(반환값이 없으면 비어 있음).
+  google.protobuf.Value value = 3;
+  // ok=false일 때 사유: 모르는 명령, 인자 오류, 예외 메시지.
+  string error = 4;
+}
+
+message AgentEvent {
+  int64 timestamp_unix_ms = 1;
+  // "<영역>.<일>" 소문자 (예: "phase.changed", "player.joined").
+  string name = 2;
+  // 관련된 플레이어가 있으면.
+  string player_id = 3;
+  google.protobuf.Struct data = 4;
+}
