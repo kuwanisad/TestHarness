@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    시나리오 정의(검증 절차) - [TH_Scenario] 클래스 하나가 목표 그래프 하나. 하네스 데몬이 시작할 때 리플렉션으로 모은다.
+    기능 코드(HarnessCore)와 섞지 않으려고 따로 둔다. 작성 규칙은 HarnessCore/Scenarios/TH_Scenario.cs 주석.
+  -->
+  <PropertyGroup>
+    <RootNamespace>TestHarness.Scenarios</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HarnessCore\HarnessCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Unity와 같이 쓰는 값(클라 단계, 씬 역할) - 같은 파일을 링크로 컴파일해서, Unity 쪽 값이 바뀌면 판정도 같이 바뀐다.
+         Unity/.NET API에 의존하지 않는 파일이라 그대로 컴파일된다. -->
+    <Compile Include="..\..\Unity\Assets\Scripts\Shared\ClientScreenState.cs" Link="Shared\ClientScreenState.cs" />
+  </ItemGroup>
+
+</Project>

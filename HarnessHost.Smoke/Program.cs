@@ -5,12 +5,12 @@ using TestHarness.HarnessHost;
 //
 // 1. 하네스 제어 서버를 띄운다.
 // 2. DevTools\start-servers.ps1을 하네스 모드(-LogDir, -HarnessAddress)로 불러 서버들을 띄운다.
-// 3. 서버들이 하네스에 접속하는지, 명령(공통 명령 + GameAgent 전용 agent.status)이 도는지 확인한다.
+// 3. 서버들이 하네스에 접속하는지, 명령(공통 명령 + GameAgent의 process.status)이 도는지 확인한다.
 // 4. DevTools\stop-servers.ps1로 정리한다(실패해도 정리는 함).
 //
 // 사용법:
 //   dotnet run --project HarnessHost.Smoke [-- 옵션]
-//   --only <서버,...>     띄울 서버(기본: 전부). GameAgent는 반드시 포함해야 agent.status를 확인한다.
+//   --only <서버,...>     띄울 서버(기본: 전부). GameAgent는 반드시 포함해야 process.status(GameAgent 전용 상태)를 확인한다.
 //   --skip-docker         Docker/BrokerInitializer를 건너뜀(이미 떠 있을 때)
 //   --port <n>            하네스 포트(기본 9000)
 //   --devtools <폴더>     DevTools 위치(기본: TestHarness 옆 ..\DevTools를 찾아감)
@@ -95,7 +95,7 @@ try
         Check(!extra.Ok && extra.Error.Contains("모르는 인자"), $"모르는 인자는 실패 → {extra.Error}");
     }
 
-    Console.WriteLine("[4] GameAgent 전용 명령 agent.status (Unity 인게임 서버 없음 → 미연결)");
+    Console.WriteLine("[4] GameAgent 상태 명령 process.status (Unity 인게임 서버 없음 → 미연결)");
     var gameAgent = host.Agents.FirstOrDefault(a => a.Name == "GameAgent");
     if (gameAgent == null)
     {
@@ -103,9 +103,9 @@ try
     }
     else
     {
-        var status = await gameAgent.InvokeAsync("agent.status");
+        var status = await gameAgent.InvokeAsync("process.status");
         Check(status.Ok && status.Value.GetProperty("gameServerConnected").GetBoolean() == false,
-            $"agent.status → {status}");
+            $"process.status → {status}");
     }
 }
 finally

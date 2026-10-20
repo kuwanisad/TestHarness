@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    하네스의 실제 기능(실행 단위, 이벤트, 서버 제어, 빌드, 헤드리스 클라, 로그 조회)을 모은 라이브러리.
+    AI용 입구(HarnessDaemon의 MCP 도구)와 앞으로 만들 C# 시나리오가 둘 다 이걸 쓴다 - 기능은 여기에만
+    두고, 입구 쪽은 인자를 받아 넘기고 결과를 돌려주는 얇은 층으로 유지한다.
+  -->
+  <PropertyGroup>
+    <RootNamespace>TestHarness.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HarnessHost\HarnessHost.csproj" />
+    <ProjectReference Include="..\HeadlessClient\HeadlessClient.csproj" />
+  </ItemGroup>
+
+</Project>

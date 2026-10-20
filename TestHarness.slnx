@@ -3,4 +3,7 @@
   <Project Path="HeadlessClient.Smoke/HeadlessClient.Smoke.csproj" />
   <Project Path="HarnessHost/HarnessHost.csproj" />
   <Project Path="HarnessHost.Smoke/HarnessHost.Smoke.csproj" />
+  <Project Path="HarnessCore/HarnessCore.csproj" />
+  <Project Path="HarnessScenarios/HarnessScenarios.csproj" />
+  <Project Path="HarnessDaemon/HarnessDaemon.csproj" />
 </Solution>

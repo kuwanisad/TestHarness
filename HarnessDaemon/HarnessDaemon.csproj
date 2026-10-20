@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    AI(Claude Code 등)가 하네스를 쓰는 입구. 하네스 기능(HarnessCore)을 MCP 도구로 노출하는 상주 프로세스.
+    - 9000: 테스트 대상(서버/Unity) 에이전트가 붙는 gRPC (HarnessHost)
+    - 9100: AI가 붙는 MCP (http://localhost:9100/mcp)
+    실행: TestHarness 폴더에서 dotnet run, 프로젝트는 HarnessDaemon (README "AI에게 하네스 쥐여주기" 참고)
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>TestHarness.Daemon</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HarnessCore\HarnessCore.csproj" />
+    <ProjectReference Include="..\HarnessScenarios\HarnessScenarios.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MCP 접속 시 AI에게 보내는 사용 안내. 하네스는 디스크의 이 파일을 먼저 읽고, 없을 때만 실행 파일에 넣은 사본을 쓴다. -->
+    <EmbeddedResource Include="McpInstructions.md" LogicalName="McpInstructions.md" />
+  </ItemGroup>
+
+</Project>
