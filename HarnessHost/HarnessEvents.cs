@@ -22,6 +22,20 @@ public sealed record HarnessEvent(
     }
 }
 
+/// <summary>
+/// 대상이 보낸 로그 한 줄(AgentLog). 이벤트와 달리 타임라인에 넣지 않고 실행 폴더의 로그 파일로만 간다 - 양이 많고,
+/// 판정이 아니라 원인 찾기용이라서. Pid는 접속한 프로세스(Hello) - 같은 프로세스의 두 에이전트(메인 에디터의 UnityEditor와
+/// client)가 같은 줄을 각자 보내도 나중에 같은 줄로 알아볼 수 있게.
+/// </summary>
+public sealed record AgentLogRecord(
+    string AgentName,
+    int Pid,
+    DateTimeOffset TimestampUtc,
+    string Level,
+    string Category,
+    string Message,
+    string Exception);
+
 /// <summary>하네스가 스스로 기록하는 이벤트 이름.</summary>
 public static class HarnessEventNames
 {

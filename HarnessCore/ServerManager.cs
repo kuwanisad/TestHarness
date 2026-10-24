@@ -173,7 +173,15 @@ public sealed class ServerManager
                     kv.Key, ProcessRunner.IsAlive(kv.Value) ? "failed" : "killed", kv.Value,
                     ProcessRunner.IsAlive(kv.Value) ? "still-alive" : null, null, null, null, null))
                 .ToList();
-            var ok = result.ExitCode == 0 && steps.All(s => s.Status == "killed");
+
+            // Docker를 내렸으면(docker-compose down - 컨테이너 제거) 인프라 포트가 닫혔는지로 확인한다.
+            if (stopInfra)
+            {
+                var stillUp = (await InfraProbe.CheckAsync(ct)).Where(i => i.Up).Select(i => i.Name).ToList();
+                steps.Add(new ServerStep("Docker", stillUp.Count == 0 ? "removed" : "failed", null,
+                    stillUp.Count == 0 ? null : $"still-up: {string.Join(",", stillUp)}", null, null, null, null));
+            }
+            var ok = result.ExitCode == 0 && steps.All(s => s.Status is "killed" or "removed");
 
             var report = new ServerOperationReport(ok, "stop", result.ExitCode, steps, _paths.Relative(transcript),
                 ok ? null : result.Tail(15), ok ? null : "남은 프로세스가 있으면 server_control(kill)로 하나씩 끄거나 transcript를 볼 것");
@@ -291,9 +299,14 @@ public sealed class ServerManager
         var ok = scriptOk && result.ExitCode == 0 && steps.All(s => s.AgentAttached != false);
         string? hint = null;
         if (steps.Any(s => s.Detail == "missing-dll")) hint = "빌드된 DLL이 없음 - servers_stop 후 server_build를 하고 다시 servers_start";
+        else if (steps.Any(s => s.Detail == "missing-harness"))
+            hint = "하네스 에이전트 DLL(Server/GameServer/Shared/Test/bin)이 없음 - servers_stop 후 server_build(서버를 빌드하면 하네스 쪽도 같이 빌드)를 하고 다시 servers_start";
         else if (steps.Any(s => s.Detail == "already-running")) hint = "이미 떠 있는 서버가 있음 - servers_stop(지난 실행이면 runId)으로 끈 뒤 다시 시작";
         else if (!scriptOk) hint = "실패한 단계의 logTail을 볼 것. 이미 뜬 서버는 그대로 있으니 servers_stop으로 정리한 뒤 다시 시작";
-        else if (steps.Any(s => s.AgentAttached == false)) hint = "서버는 떴지만 하네스 에이전트가 안 붙음 - 그 서버 로그에서 [Harness] 줄을 찾아볼 것";
+        else if (steps.Any(s => s.AgentAttached == false))
+            hint = "서버는 떴지만 하네스 에이전트가 안 붙음 - 그 서버 로그에서 Harness.Agent 줄(접속 실패 사유)을 찾아볼 것. " +
+                   "'하네스 에이전트 시작' 줄이 아예 없으면 주입이 안 된 것" +
+                   "(하네스 DLL이 서버보다 오래됐거나 어셈블리를 못 찾음 - server_build로 다시 빌드)";
 
         // 스크립트 출력 끝부분은 실패 단계의 logTail이 없을 때만 싣는다(있으면 같은 내용이 두 번 실려 길어지기만 한다).
         var scriptTail = scriptOk || steps.Any(s => s.LogTail != null) ? null : result.Tail(15);

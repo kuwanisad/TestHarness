@@ -16,11 +16,13 @@ internal sealed class AgentRegistry
     private readonly object _lock = new();
     private readonly Dictionary<string, AgentSession> _sessions = new(StringComparer.Ordinal);
     private readonly TimeSpan _commandTimeout;
+    private readonly Action<AgentLogRecord>? _logSink;
 
-    public AgentRegistry(HarnessEventLog events, TimeSpan commandTimeout)
+    public AgentRegistry(HarnessEventLog events, TimeSpan commandTimeout, Action<AgentLogRecord>? logSink = null)
     {
         Events = events;
         _commandTimeout = commandTimeout;
+        _logSink = logSink;
     }
 
     public HarnessEventLog Events { get; }
@@ -101,5 +103,16 @@ internal sealed class AgentRegistry
             : DateTimeOffset.UtcNow;
         var dataJson = evt.Data == null ? "" : JsonFormatter.Default.Format(evt.Data);
         Events.Record(timestamp, session.Name, evt.Name, evt.PlayerId, dataJson);
+    }
+
+    public void RecordAgentLog(AgentSession session, AgentLog log)
+    {
+        if (_logSink == null) return;
+
+        var timestamp = log.TimestampUnixMs > 0
+            ? DateTimeOffset.FromUnixTimeMilliseconds(log.TimestampUnixMs)
+            : DateTimeOffset.UtcNow;
+        _logSink(new AgentLogRecord(session.Name, session.Pid, timestamp,
+            string.IsNullOrEmpty(log.Level) ? "Information" : log.Level, log.Category, log.Message, log.Exception));
     }
 }

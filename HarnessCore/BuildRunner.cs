@@ -22,6 +22,10 @@ public sealed record BuildReport(
 /// dotnet CLI만 읽을 수 있어서, 설치된 SDK가 무엇이든 되게. 공용 프로젝트는 첫 서버를 빌드할 때 같이
 /// 빌드되고 이후엔 최신이라 건너뛰므로 크게 느리지 않다. 실패한 프로젝트가 있어도 나머지를 계속 빌드한다
 /// (오류를 한 번에 다 보여주려고 - 공용 프로젝트 오류는 중복 제거됨).
+///
+/// 서버를 하나라도 빌드하면 하네스 쪽 프로젝트(Shared/Test의 Harness.Agent와 &lt;서버&gt;.Harness 전부)도 이어서 빌드한다 -
+/// 서버가 하네스를 참조하지 않으므로(하네스 모드에서 DevTools가 주입) 서버 빌드가 하네스를 같이 빌드해 주지 않는다.
+/// 최신이면 금방 건너뛴다.
 /// </summary>
 public sealed class BuildRunner
 {
@@ -130,10 +134,28 @@ public sealed class BuildRunner
                 .ToList()
             : all.ToList();
 
-        return selected.Select(name => (name, name == "BrokerInitializer"
+        var targets = selected.Select(name => (name, name == "BrokerInitializer"
                 ? Path.Combine(_paths.DevTools, "BrokerInitializer", "BrokerInitializer.csproj")
                 : Path.Combine(_paths.GameServer, name, $"{name}.csproj")))
             .ToList();
+
+        if (selected.Any(name => name != "BrokerInitializer")) targets.AddRange(HarnessProjects());
+        return targets;
+    }
+
+    /// <summary>하네스 쪽 프로젝트: Harness.Agent + Shared/Test/&lt;서버&gt;.Harness 전부(서버별 명령).</summary>
+    private IEnumerable<(string Name, string Path)> HarnessProjects()
+    {
+        var sharedTest = Path.Combine(_paths.GameServer, "Shared", "Test");
+        yield return ("Harness.Agent", Path.Combine(sharedTest, "Harness.Agent", "Harness.Agent.csproj"));
+
+        if (!Directory.Exists(sharedTest)) yield break;
+        foreach (var dir in Directory.GetDirectories(sharedTest, "*.Harness").OrderBy(d => d, StringComparer.Ordinal))
+        {
+            var name = Path.GetFileName(dir);
+            var project = Path.Combine(dir, name + ".csproj");
+            if (File.Exists(project)) yield return (name, project);
+        }
     }
 
     private string ShortenPaths(string text) =>

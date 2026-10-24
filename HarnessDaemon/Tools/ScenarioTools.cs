@@ -6,9 +6,9 @@ using TestHarness.Daemon.Mcp;
 namespace TestHarness.Daemon.Tools;
 
 /// <summary>
-/// 시나리오(목표 그래프) 진행. 하네스가 목표를 내주고 → AI가 고르고(objective_begin) → 수행하고 → 보고하면
-/// (objective_report) 하네스가 판정해 다음 목표를 내준다. 순서는 하네스가 통제하고(어기면 거부 + expect),
-/// 수행 중의 다른 도구 호출은 자유다(전부 그 목표에 묶여 기록됨). 기능은 HarnessCore의 TH_ScenarioRunner.
+/// 시나리오(노드 그래프) 진행. 노드는 하네스가 실행하고 판정한다 - AI는 전체 그래프를 보고 다음 노드를 고르고(node_run),
+/// 충분하면 끝낸다(scenario_finish). 순서는 하네스가 통제하고(어기면 거부 + expect), 노드 사이의 조사용 도구 호출은 자유다.
+/// 기능은 HarnessCore의 TH_ScenarioRunner.
 /// </summary>
 public sealed class ScenarioTools
 {
@@ -24,34 +24,40 @@ public sealed class ScenarioTools
     public object ScenarioList() => Runner.List();
 
     [McpTool("scenario_start")]
-    [Description("시나리오를 시작한다. 결과: 전제(preconditions), 주의(cautions), 진행 규칙(rules) - 이건 이때 한 번만 준다 - 와 첫 목표, " +
-                 "다음에 할 행동(expect). 이후 모든 시나리오 도구 응답의 expect를 따를 것. 실행(run)이 없으면 자동으로 연다.")]
-    public object ScenarioStart([Description("시나리오 이름(scenario_list의 name)")] string name) => Runner.Start(name);
+    [Description("시나리오를 시작한다. mode=ai(기본): 맥락(context), 전제, 주의, 진행 규칙(rules) - 이건 이때 한 번만 준다 - 과 전체 그래프(graph), " +
+                 "지금 상태, 고를 수 있는 노드(available), 다음 행동(expect)을 돌려준다. mode=auto: 하네스가 정해진 경로로 끝까지 돌고 " +
+                 "결과 요약과 보고서 경로를 돌려준다(오래 걸리니 pending이 오면 call_continue로 기다릴 것). 실행(run)이 없으면 자동으로 연다.")]
+    public Task<object> ScenarioStart(
+        [Description("시나리오 이름(scenario_list의 name)")] string name,
+        [Description("ai(AI가 노드를 고름) | auto(하네스가 정해진 경로로 끝까지)")] TH_RunMode mode = TH_RunMode.Ai,
+        CancellationToken ct = default) =>
+        Runner.StartAsync(name, mode, ct);
 
-    [McpTool("objective_begin")]
-    [Description("제시된 목표 중 하나를 고른다(하네스의 질문에 대한 대답). 결과: 목표 내용(goal, passCriteria, judgedBy, hints)과 sinceSeq - " +
-                 "이 뒤의 이벤트만 이 목표의 근거가 된다. 후보가 여럿이면 reason에 고른 이유를 쓸 것. 제시되지 않은 목표는 거부된다.")]
-    public object ObjectiveBegin(
-        [Description("목표 ID(expect.choices 중 하나)")] string objective,
-        [Description("고른 이유(후보가 여럿일 때 필수)")] string? reason = null) =>
-        Runner.Begin(objective, reason);
+    [McpTool("node_run")]
+    [Description("다음 노드를 고른다(하네스의 질문에 대한 대답) - 하네스가 그 노드를 실행하고 판정한다(묶음 노드는 자식까지). 지금 상태에서 " +
+                 "시작할 수 있는 노드(available)만 된다. reason에 고른 이유를 쓸 것(보고서에 남음). 결과: 판정, 바뀐 상태, 환경(environment - " +
+                 "changes가 있으면 테스트 대상이 바뀐 것), 다음에 고를 수 있는 노드, expect. 오래 걸리면 pending - call_continue로 기다릴 것.")]
+    public Task<object> NodeRun(
+        [Description("노드 ID(available 중 하나)")] string node,
+        [Description("고른 이유")] string? reason = null,
+        CancellationToken ct = default) =>
+        Runner.RunNodeAsync(node, reason, ct);
 
-    [McpTool("objective_report")]
-    [Description("진행 중인 목표의 결과를 보고한다. judgedBy=harness인 목표는 하네스가 기록으로 판정하고 AI 보고와 다르면 불일치로 남긴다. " +
-                 "judgedBy=ai인 목표는 Pass에 근거 이벤트 번호(evidenceSeqs - 이 목표의 sinceSeq 뒤, events_query/wait_for의 seq)가 필수. " +
-                 "판단할 수 없으면 Unverified + note. 결과: 판정(recorded)과 다음 목표(offer), expect. 마지막(정리) 목표면 보고서 경로.")]
-    public object ObjectiveReport(
-        [Description("목표 ID(진행 중인 것)")] string objective,
+    [McpTool("node_judge")]
+    [Description("AI 판정 노드(judgedBy=ai)를 실행한 뒤 판정을 보고한다 - 보고 전에는 다음 노드로 못 간다. Pass에는 근거 이벤트 번호" +
+                 "(evidenceSeqs - 그 노드 구간 안, node_run 응답의 seqRange)가 필수. 판단할 수 없으면 Unverified + note.")]
+    public object NodeJudge(
+        [Description("노드 ID(판정을 기다리는 것)")] string node,
         [Description("Pass | Fail | Unverified")] TH_Result result,
         [Description("근거 이벤트 번호들(seq)")] long[]? evidenceSeqs = null,
-        [Description("한 일과 관찰 요약, 하네스 밖에서 한 일(코드 수정 등)")] string? note = null) =>
-        Runner.Report(objective, result, evidenceSeqs, note);
+        [Description("판단 근거 요약")] string? note = null) =>
+        Runner.Judge(node, result, evidenceSeqs, note);
 
-    [McpTool("scenario_abort")]
-    [Description("시나리오를 더 진행할 수 없을 때 보고한다(예: 서버가 안 뜸, 같은 실패 반복). 남은 목표는 실행 안 함으로 기록되고 정리 목표만 " +
-                 "나온다(정리 중이면 바로 끝남). 이상 현상을 조사하는 것 자체는 중단 사유가 아니다 - 조사는 목표 수행 중에 자유롭게 할 것.")]
-    public object ScenarioAbort(
-        [Description("중단 사유(한 줄)")] string reason,
-        [Description("현황 - 어디까지 했고 무엇이 관찰됐는지(근거 seq 포함)")] string situation) =>
-        Runner.Abort(reason, situation);
+    [McpTool("scenario_finish")]
+    [Description("시나리오를 끝낸다 - 맥락상 충분히 봤을 때, 또는 더 진행할 수 없을 때(특정 노드까지 갈 필요 없음). 하네스가 정리 노드를 " +
+                 "실행하고 보고서를 쓴 뒤 결과와 보고서 경로를 돌려준다(사람에게 경로를 알릴 것). 노드 실행 중에는 안 된다.")]
+    public Task<object> ScenarioFinish(
+        [Description("끝내는 이유(보고서에 남음)")] string reason,
+        CancellationToken ct = default) =>
+        Runner.FinishByAiAsync(reason, ct);
 }

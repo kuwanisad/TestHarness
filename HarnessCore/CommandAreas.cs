@@ -22,8 +22,10 @@ public static class CommandAreas
     public static readonly IReadOnlyList<CommandArea> All = new[]
     {
         new CommandArea("editor", "UnityEditor", "Unity 에디터 자체(에디터 브리지)",
-            "Unity 코드 반영(refresh), 컴파일 오류 확인, Play/Stop, 에디터 콘솔"),
-        new CommandArea("client", "Unity 클라(보통 client)", "Unity 클라의 로그인/매칭/상태",
+            "Unity 코드 반영(refresh), 컴파일 오류 확인, Play/Stop, 에디터 콘솔, Play 시작 씬 정하기(set_play_start)/되돌리기(clear_play_start)"),
+        new CommandArea("scene", "모든 Unity 에이전트(client1, server ...)", "그 플레이어의 씬 전환",
+            "Play 뒤 출발 씬(HarnessBoot)에서 역할의 시작 씬으로 넘길 때(scene.load - UnityPlay 노드가 함). 씬 이름은 Unity 씬 파일 이름과 같아야 함"),
+        new CommandArea("client", "Unity 클라(client1, client2 ... - MPPM 태그 Client1 ...)", "Unity 클라의 로그인/매칭/상태",
             "Unity 클라로 로그인하고 매칭을 시작할 때"),
         new CommandArea("shop", "Unity 클라", "매물대 - UI와 같은 경로로 조작/조회(구매, 리롤, 판매, 내 기물)",
             "실제 UI 경로를 검증할 때(규칙을 건너뛰지 않음)"),
@@ -35,6 +37,10 @@ public static class CommandAreas
             "Unity 콘솔(log.recent)을 보거나 로그에 표시(log.mark)를 남길 때"),
         new CommandArea("process", "모든 에이전트", "프로세스 정보와 상태",
             "프로세스 정보(process.info), 그 프로세스 고유의 현재 상태(process.status)"),
+        new CommandArea("net", "모든 Unity 에이전트(client1, server ...) - 그 플레이어 프로세스 단위", "NGO 통신 조건 - Network Simulator로 지연/흔들림/손실, 끊기/다시 잇기, 순간 끊김",
+            "클라↔인게임 서버 경계의 장애(재접속, 탈주, 지연)를 만들 때. net.condition/net.link는 하네스가 지속 조작으로 추적해 되돌림"),
+        new CommandArea("fault", ".NET 서버(gRPC를 받는 서버)", "경계 장애 규칙 - 받는 gRPC 메시지를 고치기/버리기/늦추기/실패",
+            "서버끼리/클라↔서버 메시지를 경계에서 조작할 때(fault.methods로 메서드와 경로 확인 → fault.add). 하네스가 지속 조작으로 추적해 되돌림"),
     };
 
     private static readonly Dictionary<string, CommandArea> ByName =

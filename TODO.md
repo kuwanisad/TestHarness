@@ -1,88 +1,81 @@
 # TODO (TestHarness)
 
-남은 작업만 간결하게 모아둔다. 세팅/실행 절차는 `README.md`, 서버 쪽 남은 작업은
-`Server/TODO.md`, Unity 쪽은 `Unity/TODO.md`에 있다.
+남은 일만 둔다. 끝난 일과 PC 확인 기록은 `HISTORY.md`, 세팅/실행 절차는 `README.md`, 서버 쪽 남은 작업은 `Server/TODO.md`,
+Unity 쪽은 `Unity/TODO.md`.
 
 ---
 
-## 4주 계획 (AI가 하네스를 MCP로 쓴다)
+## 1. 실제 버그 후보 (4주차 7번)
 
-방향: AI(Claude Code)가 하네스를 MCP 도구로 직접 쓴다. 하네스 기능은 `HarnessCore`에 두고, 입구는 둘 -
-탐색형 디버깅용 MCP(`HarnessDaemon`)와 회귀 테스트용 C# 시나리오(3주차). 인게임은 가짜 서버 없이 진짜 Unity로
-본다(에디터를 켜 두고 하네스가 원격으로 조작).
+- **재진입 포기 뒤 클라가 인게임에 갇힘** - "인게임 서버 접속 시간 초과(10초) - 포기합니다" 뒤에도 Ingame 씬, networkRole=none(로비/로그인으로
+  안 돌아감). reconnect의 GraceExpire 뒤 메모로 매번 재현. 탈주 뒤 클라가 어디로 가야 하는지 결정 필요(서버 이동 중 화면 가리기 구상은 미정).
+- **클라 재접속 폭주** - 서버가 접속을 거부/끊으면(예: NetworkConfig mismatch) 클라가 기다림 없이 바로 재시도 - 10-24 112845에서 30초에 약
+  135번(서버 경고 274건). 재시도 간격/횟수 제한 필요.
+- **죽어 가는 서버로 재진입 안내** - LoginServer가 10-23 08:13:21.937에 "재진입 성공 - 127.0.0.1:7777"로 안내했는데 그 서버는 08:13:21.89~.916에
+  종료 중. 게임 서버가 죽을 때 Redis 세션(Ingame @ 서버)이 정리되기 전에 로그인이 들어오는 경쟁으로 보임(10-23 171124).
+- **재진입 포기 뒤 채팅 토큰 불일치** - 재진입 로그인이 새 토큰을 발급했는데 채팅 재연결은 옛 토큰을 쓰는 것으로 보임(채팅 서버 401 "토큰 불일치",
+  10-23 175701).
+- **실패한 재진입 연결의 퇴장 로그에 playerId 자리에 clientId** - "NGO 클라이언트 퇴장: clientId=2 playerId=2", "이미 정리된 방 소속 - PlayerLeft
+  생략: playerId=2"(175701, 195734). 승인 전에 끊긴 연결의 퇴장 처리에서 playerId를 못 찾아 clientId를 쓰는 것으로 보임 - 로그만인지 처리도 틀린지 확인.
+- **가상 플레이어 server가 멈춘 원인** - 10-23 171124에 약 54초 멈춤 → GameAgent 하트비트 타임아웃 → 스스로 종료(백그라운드 창 멈춤 추정).
+  다시 나면 원인 확인.
 
-- **1주차 - 데몬과 서버 (완료, PC 확인 대기)**: HarnessDaemon(:9000 에이전트 + :9100 MCP), MCP 직접 구현(도구만,
-  공식 SDK로 바꿀 자리는 `HarnessDaemon/Mcp/McpToolAttribute.cs` 주석), 서버 빌드/기동/제어/종료(DevTools 스크립트 +
-  결과 파일), 헤드리스 클라 도구, wait_for/events_query/logs_query, MCP 사용 안내.
-- **2주차 - 에디터 브리지와 Unity 조작 (코드 완료, PC 확인 대기)**: 연결 코드 분리(`HarnessConnection`), 에디터 브리지
-  (`Editor/HarnessEditorBridge.cs` + `editor.*` 명령), 역할 자동 배정(`Unity/Assets/Test/TestRoleSettings.cs`, Tester), Unity
-  클라/서버 명령(`client.*`, `ingame.rooms`, `log.recent`)과 관찰 이벤트, `RoomManager` 조회용 속성, 하네스 `account_create`,
-  같은 클라 호출 직렬화, 사용 안내 Unity 절. 실제 네트워크 끊김 흉내(`client.disconnect`)는 4주차 장애 주입으로 미룸
-  (Unity가 스스로 끊으면 실제 끊김과 다른 경로를 탈 수 있어서 - DevTools `block-port.ps1` 방식이 맞음).
-  - 마일스톤: AI가 클라 1개 + 봇 7로 한 판을 끝까지 돌린다.
-  - 추가: 테스트 조작(`cheat.*` - 재정비 시간/즉시 종료/배속, 특정 기물 구매+배치, 데미지, 참가자 상태)과 클라 판매
-    (`shop.units`/`shop.sell`), `player.health_changed`. 한 판이 너무 길어서 넣음 - 사용 안내 "빨리 한 판 끝내기".
-    Unity 쪽 코드는 `Unity/Assets/Scripts/Test/Cheats/`(PC 컴파일 확인 대기 - `Unity/TODO.md` 맨 위).
-- **3주차 - 시나리오와 타임라인**:
-  - (앞당겨 구현, PC 확인 대기) 시나리오 틀 `TH_*`(HarnessCore/Scenarios) - 목표 그래프를 하네스가 하나씩 내주고 AI가 수행,
-    하네스가 기록으로 판정(judge), 보고서는 하네스가 작성. MCP `scenario_list/start`, `objective_begin/report`, `scenario_abort`.
-    AI의 모든 도구 호출 기록(`mcp-calls.jsonl`, 타임라인 source=ai). 명령 영역(`CommandAreas.cs`) + `agent_list(query)`.
-    시나리오 `full-match`, `cheat-commands`(HarnessScenarios). 샌드박스에서 데몬 + MCP로 진행/거부/중단/보고서, 가짜 기록으로
-    cheat-commands 판정·분기까지 확인.
-  - 남은 것: 같은 시나리오 그래프를 사람 없이 도는 C# 수행자(목표마다 실행 함수) + 명령줄 실행, 타임라인 병합(서버 로그 +
-    이벤트 + Unity 로그, playerId/roomId로 구간 자르기), 아래 "런타임 검증 대기"를 시나리오로.
-- **4주차 - 다중 클라, 장애 주입, 실전 투입**: 가상 플레이어 2~3을 클라로, 재접속/탈주 시나리오, 장애 주입 명령,
-  실제 버그 하나를 AI가 하네스로 디버깅해 보고 도구/안내 보완.
-- 밀리면 자를 순서: 타임라인 축소 → 다중 클라 시나리오 축소.
+## 2. 진행 중
 
-## PC 확인 항목
+- **DebugManager 로그 중계 PC 확인** - 구현 끝(10-24, CLAUDE.md "테스트 코드 분리" 예외). reconnect 시나리오가 `s.Logs`(로비 2종 수집, 콘솔 없음)를
+  선언 - 콘솔에 "[LobbyClientDisconnected]"가 안 뜨고 `logs/client1.log`에는 있는지, 로그 파일의 노드 경계 줄, 끝난 뒤 `log.state`가 전부(null)인지.
+- **코드 정리** - 하네스 코드가 하네스 쪽에만 있는지, 응집도, 당시 상황용 하드코딩, 일관성을 기준으로 전체를 훑는다(10-24 합의, E/F 다음).
 
-**1주차** - Claude Code 연결, 서버 기동/로그인/매칭/종료는 PC에서 확인됨. Unity → 하네스 평문 HTTP/2 접속도 확인됨.
-남은 것: `server_build`(서버 실행 중이면 거부되는지 포함), `devtools/*.txt`의 한글(스크립트가 BOM 없는 UTF-8이라
-Windows PowerShell 5.1에서 원래부터 깨질 수 있음 - 판정은 결과 파일로 하므로 동작 영향 없음).
+## 3. 논의 대기
 
-**시나리오/영역** - PC에서: 하네스 재빌드·재시작 → Claude Code `/mcp` 다시 연결 → "cheat-commands 시나리오 돌려 봐" →
-runs/<실행>/scenario-cheat-commands-*-report.md 확인(판정 불일치/순서 위반이 의도대로 찍히는지). 서버도 다시 빌드할 것
-(`agent.status` → `process.status`, 안 하면 agent_list에 unknownAreas로 나온다).
+- **게임 모드 설정 바꾸기(인원 등)** - 지금 구조로는 게임 코드 변경 필요 - 다른 테스트 도구들의 해결 방식 조사 후 논의.
+- **같은 방 시험(사람 둘 중 재접속/탈주)** - 매칭 인원 문제(위 게임 모드 설정) 뒤로.
 
-**2주차** - Unity 코드는 여기서 대역(stub)으로 문법만 확인했다. PC에서:
-- 컴파일: 특히 `Unity.Multiplayer.PlayMode.CurrentPlayer.Tags` / `IsMainEditor`(6000.3 문서 기준 이름), 에디터 폴더가
-  게임 쪽 public 타입(`HarnessConnection`, `HarnessCommandRegistry`, `HarnessLogBuffer`, `HarnessSettings`)을 보는지.
-- 에디터 브리지: 메뉴 체크 → `agent_list`에 `UnityEditor`. 코드 한 줄 바꾸고 `editor.refresh` → `editor.ready(reload)`.
-  일부러 컴파일 오류 → `editor.compile_failed`와 `editor.compile_errors`. 가상 플레이어에는 안 붙는지.
-- `editor.play`/`editor.stop`: 결과를 받은 뒤 Play가 바뀌는지(도메인 리로드로 응답이 끊기지 않는지), 가상 플레이어도 같이 들어가는지.
-- 태그: 메인 `Client`, 가상 `Server`로 달고 Play → 버튼 없이 역할 시작, 하네스 이름 `client`/`server`.
-- 한 판: `account_create` → `client.login` → `client.join_match` → `client.match_found` → `phase.changed` →
-  게임 종료 후 `client.lobby_state(InLobby)`. 서버 쪽 `room.*`, `server.load`, `ingame.rooms`.
+## 4. 하네스 개선
 
-## HeadlessClient
+- **노드 그래프 2단계** - 커버리지 기반 기본 경로, 지난 경로 그대로 재실행, AI가 경로를 고를 때 볼 노드별 커버리지/최근 실패.
+- **UnityPlay 실패 힌트** - "server의 harness.attached가 오지 않음"에 "MPPM 가상 플레이어 창이 떴는지, 태그가 맞는지 확인"을 붙인다(10-24 145347).
+- **기물이 있는 상태의 재접속 점검** - ReconnectPlanning 앞에 기물을 사 두면 기물(꺼진 대기열 기물 포함)까지 오브젝트 수 점검에 들어간다
+  (10-24 150218은 오브젝트 11개 - 기물 없음).
 
-- **채팅(WebSocket) 미지원.**
-- **전입 티켓 재사용이 Unity와 다름** - Unity 클라는 MatchFound로 받은 티켓을 기억했다가 로그인 서버 재진입이 같은 주소로
-  안내하면 다시 낸다(`ClientInstance._ingameTransfer`). HeadlessClient의 `ReconnectViaLoginServerAsync`는 인게임 안내를 받으면
-  티켓 없이 `PendingIngameTransfer`를 만든다. 인게임은 이제 Unity 클라가 맡으므로 우선순위 낮음.
-- (완료) 코드 리뷰 수정 3건 - 이전 매치 정보 재사용(`LastMatchFound` + 유효 플래그), 서버 쪽 끊김 시 단계 미갱신
-  (`ConnectionStage`로 이름 변경 + 서버가 닫으면 갱신), 로비 연결 교체 경합(`DetachLobby`의 원자적 교체).
+## 5. 시나리오로 만들 것 (코드로만 확인한 서버 수정)
 
-## 런타임 검증 대기 (코드로만 확인한 수정)
+서버/Unity에서 코드로 원인을 확정하고 고쳤지만 실제 실행으로는 아직 확인 못 한 것들(`Server/TODO.md` "코드 리뷰로 발견해 수정한 항목").
 
-서버/Unity에서 코드로 원인을 확정하고 고쳤지만 실제 실행으로는 아직 확인 못 한 것들
-(`Server/TODO.md` "코드 리뷰로 발견해 수정한 항목"). 2주차(진짜 Unity 조작) 이후 3주차에 시나리오로 만들 것.
-
-- 정상 종료를 여러 판 반복해도 게임 에이전트 부하가 쌓이지 않는지(`GameServerStatus` 값 추적),
-  수락~응접실 생성 사이에 정원을 넘겨 수락하지 않는지.
+- 정상 종료를 여러 판 반복해도 게임 에이전트 부하가 쌓이지 않는지(`GameServerStatus` 값 추적), 수락~응접실 생성 사이에 정원을 넘겨 수락하지 않는지.
 - PrepareMatch가 계속 거부될 때 매칭 타임아웃이 처음 대기열에 들어온 시각 기준으로 걸리는지.
-- 재접속 가능 방: 유예 안 재접속 → 복귀, 유예 밖 → `PlayerAbandoned` 후 세션 삭제, 이후 재접속은
-  `PLAYER_ABANDONED`로 거부. 재접속 불가 방: 끊기면 즉시 소유권 해제.
-- 게임 에이전트 승인 조건: `Moving`인데 티켓 없음/틀림 → `INVALID_TRANSFER_TICKET`, 틀린 티켓
-  뒤에도 진짜 티켓으로 입장 가능, `Reconnecting`은 티켓 없이 승인, 소유자가 다른 서버면 거부.
-- 이동 중 첫 접속 실패 → 로그인 서버가 `NextServer`로 안내 → 받아둔 티켓으로 입장. TTL이 지나면
-  세션 삭제 → 로그인 서버가 `NO_ACTIVE_SESSION`.
-- 응접실 승격 중(닉네임 조회 대기 중) 접속 완료/끊김/방 종료가 반영되는지, 닉네임 조회가 5초 안에
-  안 오거나 계정이 없으면 방이 깨지는지.
+- 재접속 가능 방: 유예 안 재접속 → 복귀, 유예 밖 → `PlayerAbandoned` 후 세션 삭제, 이후 재접속은 `PLAYER_ABANDONED`로 거부. 재접속 불가 방: 끊기면
+  즉시 소유권 해제. (유예 안/밖은 reconnect 시나리오가 일부 확인 - 세션 삭제와 이후 거부는 아직)
+- 게임 에이전트 승인 조건: `Moving`인데 티켓 없음/틀림 → `INVALID_TRANSFER_TICKET`, 틀린 티켓 뒤에도 진짜 티켓으로 입장 가능, `Reconnecting`은
+  티켓 없이 승인, 소유자가 다른 서버면 거부.
+- 이동 중 첫 접속 실패 → 로그인 서버가 `NextServer`로 안내 → 받아둔 티켓으로 입장. TTL이 지나면 세션 삭제 → 로그인 서버가 `NO_ACTIVE_SESSION`.
+- 응접실 승격 중(닉네임 조회 대기 중) 접속 완료/끊김/방 종료가 반영되는지, 닉네임 조회가 5초 안에 안 오거나 계정이 없으면 방이 깨지는지.
 
-## 서버 쪽 보완 (하네스 판정에 필요)
+## 6. 미룸
 
-- **`INVALID_CREDENTIALS` 분기 일부에 로그가 없음** - 로그인 서버가 거부 사유를 클라에는 보내지만
-  서버 로그에 구체적인 값(어느 계정, 어느 단계)을 남기지 않는 분기가 있다. 하네스는 로그로 원인을 좁히므로
-  "무엇이 일어났는지"를 값으로 남기도록 보완할 것.
+- **성능 측정** - 방 여러 개/오브젝트 수천 개/짧은 간격 들락날락. 방 하나·끊김 감지 30초·에디터 수치로는 의미 있는 값이 안 나옴(10-24 논의).
+  실제 서버 빌드와 부하 수단(더미 오브젝트 대량 스폰 등)이 생기면 다시.
+- **NGO RPC 단위 전송 래퍼** - 지금은 플레이어 단위 net.*(Network Simulator)만. 필요해지면 NGO 소스(2.11.0, UTP 2.6.0)를 확인한 뒤 테스트 코드 전송
+  래퍼를 검토(NGO 내부 전송 형식 의존 - 버전 오르면 다시 확인).
+- **HeadlessClient** - 채팅(WebSocket) 미지원. 전입 티켓 재사용이 Unity와 다름(Unity는 MatchFound 티켓을 기억했다가 재진입 때 다시 냄 -
+  `ClientInstance._ingameTransfer`, HeadlessClient의 `ReconnectViaLoginServerAsync`는 티켓 없이 `PendingIngameTransfer`). 인게임은 Unity 클라가
+  맡으므로 우선순위 낮음.
+- **서버 `INVALID_CREDENTIALS` 분기 일부에 로그가 없음** - 로그인 서버가 거부 사유를 클라에는 보내지만 서버 로그에 구체적인 값(어느 계정, 어느 단계)을
+  남기지 않는 분기가 있다. 하네스는 로그로 원인을 좁히므로 값으로 남기도록 보완.
+- **AI용 구간 조회 도구(trace)** - 필요해지면 RunTrace를 그대로 도구로 노출.
+- **Unity 로그가 아주 많을 때(전투 중) 에디터가 느려지는지** - 느리면 수준 필터 검토.
+
+## 7. PC 확인 안 된 것
+
+- `editor.compile_failed` / `editor.compile_errors` - 사람이 늘 직접 컴파일해서 불린 적 없음. 일부러 컴파일 오류를 내고 `editor.refresh`로 확인.
+- 시나리오 밖에서 AI가 건 지속 조작(예: `cheat.time_scale`)이 Play 정지에 `agent_gone`으로 끝나는지.
+- `devtools/*.txt`의 한글 깨짐(스크립트가 BOM 없는 UTF-8이라 Windows PowerShell 5.1에서 원래부터 깨질 수 있음 - 판정은 결과 파일로 하므로 동작 영향 없음).
+
+## 8. 환경 메모
+
+- **MPPM 가상 플레이어** - 창을 최소화하지 말 것(백그라운드에서 멈추면 하트비트가 끊겨 서버가 스스로 종료 - 10-23). 프리팹 직렬화가 바뀌는 변경
+  (컴포넌트 부모 클래스 변경 등) 뒤에는 가상 플레이어를 껐다 켜고 그 프리팹을 Reimport(10-24 NetworkConfig mismatch - 다시 나면 net.state에 설정
+  해시/프리팹 목록 칸을 더해 양쪽 비교). Server/Client2 창이 실제로 떴는지 확인(10-24 145347 - 안 뜨면 UnityPlay가 120초 뒤 실패).
+- **Claude Code MCP 연결** - 하네스를 먼저 띄우고 Claude Code를 시작한다(시작할 때만 연결 - 나중에 띄우면 `/mcp` 재연결, 안 되면 Claude Code 재시작).
+- **block-port.ps1이 안 막힌 이유(추정)** - Windows 방화벽은 루프백(127.0.0.1)을 걸러내지 않음 + 서버 포트 기준이라 클라 단위 불가. 경계 장애는
+  fault.*(gRPC)와 net.*(NGO)로 한다.

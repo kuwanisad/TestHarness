@@ -16,6 +16,9 @@ public sealed class HarnessHostOptions
 
     /// <summary>이벤트가 기록될 때마다 한 줄씩 받는다(콘솔/파일 출력용).</summary>
     public Action<HarnessEvent>? EventSink { get; init; }
+
+    /// <summary>대상이 보낸 로그(AgentLog - Unity처럼 자기 로그 파일이 없는 대상)를 한 줄씩 받는다. 비우면 버린다.</summary>
+    public Action<AgentLogRecord>? LogSink { get; init; }
 }
 
 /// <summary>
@@ -55,7 +58,7 @@ public sealed class HarnessHost : IAsyncDisposable
         builder.WebHost.ConfigureKestrel(kestrel =>
             kestrel.ListenLocalhost(options.Port, listen => listen.Protocols = HttpProtocols.Http2));
 
-        var registry = new AgentRegistry(new HarnessEventLog(options.EventSink), options.CommandTimeout);
+        var registry = new AgentRegistry(new HarnessEventLog(options.EventSink), options.CommandTimeout, options.LogSink);
         builder.Services.AddSingleton(registry);
         builder.Services.AddGrpc();
 

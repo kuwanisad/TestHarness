@@ -32,9 +32,9 @@ public sealed record EventFilter(
 {
     public bool Matches(TimelineEvent e)
     {
-        // AI 자신의 도구 호출 기록(source="ai", ToolCallLog)은 출처를 "ai"로 지정했을 때만 - 그냥 "다음 이벤트"를
+        // 도구 호출 기록(source="ai" - AI, "runner" - 노드를 실행하는 하네스, ToolCallLog)은 출처를 지정했을 때만 - 그냥 "다음 이벤트"를
         // 기다리거나 조회할 때 방금 자기가 부른 도구가 걸리지 않게.
-        if (string.IsNullOrEmpty(Source) && e.Source == ToolCallLog.Source) return false;
+        if (string.IsNullOrEmpty(Source) && (e.Source == ToolCallLog.Source || e.Source == ToolCallLog.RunnerSource)) return false;
         if (!string.IsNullOrEmpty(Source) && !SourceMatches(e.Source, Source)) return false;
         if (Names is { Count: > 0 } && !Names.Any(n => string.Equals(n, e.Name, StringComparison.OrdinalIgnoreCase))) return false;
         if (!string.IsNullOrEmpty(PlayerId) && !string.Equals(e.PlayerId, PlayerId, StringComparison.Ordinal)) return false;
@@ -42,12 +42,27 @@ public sealed record EventFilter(
         if (!string.IsNullOrEmpty(Contains))
         {
             var inDetail = e.Detail.Contains(Contains, StringComparison.OrdinalIgnoreCase);
-            var inData = e.Data is { } data && data.GetRawText().Contains(Contains, StringComparison.OrdinalIgnoreCase);
+            var inData = e.Data is { } data && DataContains(data, Contains);
             if (!inDetail && !inData) return false;
         }
 
         return true;
     }
+
+    // 공백 없는 JSON(한글은 그대로) - 원문 형식과 상관없이 같은 비교를 하려고.
+    private static readonly System.Text.Json.JsonSerializerOptions CompactJson = new()
+    {
+        WriteIndented = false,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>
+    /// 데이터 원문 또는 공백 없는 형태에 들어 있는지. 원문은 보낸 쪽 형식 그대로라(에이전트 이벤트는 protobuf JSON -
+    /// {"phase": "Planning"}처럼 콜론 뒤 공백) AI가 공백 없이 "phase":"Planning"으로 찾으면 못 잡던 문제 때문에 둘 다 본다.
+    /// </summary>
+    private static bool DataContains(JsonElement data, string text) =>
+        data.GetRawText().Contains(text, StringComparison.OrdinalIgnoreCase) ||
+        JsonSerializer.Serialize(data, CompactJson).Contains(text, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// "agent:LobbyServer" 정확히, "LobbyServer"(접두어 생략), "agent:*"/"client:*"(종류 전체),
@@ -79,21 +94,23 @@ public sealed class Timeline
     private readonly List<TimelineEvent> _events = new();
     private readonly List<Waiter> _waiters = new();
     private long _nextSeq = 1;
-    private StreamWriter? _writer;
+    private string? _eventsFile;
 
     public long LastSeq
     {
         get { lock (_lock) return _nextSeq - 1; }
     }
 
-    /// <summary>events.jsonl을 바꾼다(null이면 파일 기록 중지). 실행이 바뀔 때 RunManager가 부른다.</summary>
-    public void SetWriter(StreamWriter? writer)
+    /// <summary>
+    /// 이벤트가 기록될 때마다(락 밖에서, 기록한 스레드에서) 불린다 - 시나리오 진행기가 환경 변화와 AI 활동을 알아채는 데 쓴다.
+    /// 구독자는 빨리 돌아와야 하고 예외를 던지지 않아야 한다(던지면 무시).
+    /// </summary>
+    public event Action<TimelineEvent>? Recorded;
+
+    /// <summary>events.jsonl 경로를 바꾼다(null이면 파일 기록 중지). 실행이 바뀔 때 RunManager가 부른다. 이벤트마다 열고 닫는다(HarnessFiles).</summary>
+    public void SetEventsFile(string? path)
     {
-        lock (_lock)
-        {
-            _writer?.Dispose();
-            _writer = writer;
-        }
+        lock (_lock) _eventsFile = path;
     }
 
     public TimelineEvent Record(
@@ -108,15 +125,8 @@ public sealed class Timeline
             _events.Add(evt);
             if (_events.Count > MaxInMemory) _events.RemoveRange(0, _events.Count - MaxInMemory);
 
-            try
-            {
-                _writer?.WriteLine(HarnessJson.Serialize(evt));
-                _writer?.Flush();
-            }
-            catch (IOException)
-            {
-                // 파일 기록 실패가 판정(메모리 이벤트)까지 막으면 안 된다.
-            }
+            // 파일 기록 실패가 판정(메모리 이벤트)까지 막으면 안 된다(AppendLine은 던지지 않음).
+            if (_eventsFile != null) HarnessFiles.AppendLine(_eventsFile, HarnessJson.Serialize(evt));
 
             for (var i = _waiters.Count - 1; i >= 0; i--)
             {
@@ -133,6 +143,15 @@ public sealed class Timeline
             foreach (var waiter in satisfied) waiter.Tcs.TrySetResult(evt);
         }
 
+        if (Recorded is { } recorded)
+        {
+            foreach (var handler in recorded.GetInvocationList().Cast<Action<TimelineEvent>>())
+            {
+                try { handler(evt); }
+                catch (Exception) { /* 구독자 오류가 기록을 막으면 안 된다 */ }
+            }
+        }
+
         return evt;
     }
 
@@ -142,7 +161,7 @@ public sealed class Timeline
 
     /// <summary>HarnessHost(에이전트 접속/이벤트) → 타임라인.</summary>
     public void RecordAgentEvent(HarnessEvent e) =>
-        Record(e.TimestampUtc, $"agent:{e.AgentName}", e.Name, e.PlayerId, "", HarnessJson.TryParse(e.DataJson));
+        Record(e.TimestampUtc, HarnessConstants.AgentEvents.SourcePrefix + e.AgentName, e.Name, e.PlayerId, "", HarnessJson.TryParse(e.DataJson));
 
     /// <summary>헤드리스 클라 이벤트 → 타임라인. 출처 이름은 클라 이름(= 하네스 별칭).</summary>
     public void RecordClientEvent(ClientEvent e) =>

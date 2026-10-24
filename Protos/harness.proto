@@ -9,10 +9,10 @@
 //   1. 테스트 대상이 HARNESS_ADDRESS(환경 변수)로 하네스에 접속해 Attach 스트림 하나를 연다.
 //   2. 첫 메시지로 Hello를 보낸다(누구인지, 받을 수 있는 명령 목록).
 //   3. 이후 하네스는 Command를 보내고, 대상은 CommandResult로 답한다. 대상 안에서 일어난 일은
-//      AgentEvent로 아무 때나 올려 보낸다.
+//      AgentEvent로 아무 때나 올려 보낸다. 자기 로그를 파일로 남기지 못하는 대상(Unity)은 로그도 AgentLog로 보낸다.
 //   연결이 끊기면 그 대상은 하네스 입장에서 "사라진" 것으로 본다.
 //
-// 명령 이름 규칙: "<영역>.<동작>" 소문자 (예: "agent.status", "shop.buy").
+// 명령 이름 규칙: "<영역>.<동작>" 소문자 (예: "process.status", "shop.buy").
 // 명령마다 메시지를 따로 정의하지 않는다 - 디버그 명령을 추가할 때 proto를 고칠 필요가 없게.
 
 syntax = "proto3";
@@ -27,7 +27,8 @@ import "google/protobuf/struct.proto";
 // 메시지 구조를 바꾸면 CURRENT 값을 올릴 것.
 enum ProtocolVersion {
   PROTOCOL_VERSION_UNSPECIFIED = 0;
-  PROTOCOL_VERSION_CURRENT = 1;
+  // 2: AgentMessage.log(AgentLog) 추가.
+  PROTOCOL_VERSION_CURRENT = 2;
 }
 
 service HarnessControl {
@@ -41,6 +42,9 @@ message AgentMessage {
     Hello hello = 1;
     CommandResult result = 2;
     AgentEvent event = 3;
+    // 프로세스의 로그 한 줄. 자기 로그를 파일로 남기지 못하는 대상(Unity)만 보낸다 - .NET 서버는 DevTools가
+    // 콘솔 출력을 파일로 받는다. 하네스는 받은 로그를 지금 실행의 logs/<이름>.log에 서버 로그와 같은 형식으로 쓴다.
+    AgentLog log = 4;
   }
 }
 
@@ -107,4 +111,15 @@ message AgentEvent {
   // 관련된 플레이어가 있으면.
   string player_id = 3;
   google.protobuf.Struct data = 4;
+}
+
+message AgentLog {
+  int64 timestamp_unix_ms = 1;
+  // 서버 로그와 같은 이름: "Information" | "Warning" | "Error".
+  string level = 2;
+  // 분류(서버 로그의 Category에 해당). Unity는 메시지 앞의 [태그], 없으면 "Unity".
+  string category = 3;
+  string message = 4;
+  // 오류일 때 스택(없으면 비움).
+  string exception = 5;
 }

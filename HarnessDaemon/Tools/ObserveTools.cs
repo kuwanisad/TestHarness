@@ -27,7 +27,7 @@ public sealed class ObserveTools
         [Description("출처(비우면 전부)")] string? source = null,
         [Description("이벤트 이름들 중 하나(비우면 전부)")] string[]? names = null,
         [Description("이 playerId의 이벤트만")] string? playerId = null,
-        [Description("detail/data에 이 문자열이 들어 있는 것만")] string? contains = null,
+        [Description("detail/data에 이 문자열이 들어 있는 것만(대소문자 무시, JSON 공백 무시). 값만 넣는 게 가장 확실 - 예: Planning")] string? contains = null,
         [Description("이 번호 뒤의 이벤트만(행동 도구의 sinceSeq). 비우면 지금 이후")] long? sinceSeq = null,
         [Description("최대 대기(초), 최대 300")] int timeoutSeconds = 30,
         CancellationToken ct = default)
@@ -71,7 +71,7 @@ public sealed class ObserveTools
         [Description("출처(비우면 전부)")] string? source = null,
         [Description("이벤트 이름들 중 하나")] string[]? names = null,
         [Description("이 playerId의 이벤트만")] string? playerId = null,
-        [Description("detail/data에 이 문자열이 들어 있는 것만")] string? contains = null,
+        [Description("detail/data에 이 문자열이 들어 있는 것만(대소문자 무시, JSON 공백 무시). 값만 넣는 게 가장 확실 - 예: Planning")] string? contains = null,
         [Description("이 번호 뒤의 이벤트만")] long sinceSeq = 0,
         [Description("최대 개수(최대 200)")] int limit = 50,
         [Description("true면 마지막 limit개, false면 처음 limit개")] bool fromEnd = true)
@@ -91,10 +91,10 @@ public sealed class ObserveTools
     }
 
     [McpTool("logs_query")]
-    [Description("지금 실행(또는 runId 실행)의 서버 로그를 걸러서 본다. 기본은 Information 이상, 조건에 맞는 마지막 50줄(여러 서버를 시각순으로 합침). " +
+    [Description("지금 실행(또는 runId 실행)의 서버 로그와 Unity 로그(logs/<에이전트>.log)를 걸러서 본다. 기본은 Information 이상, 조건에 맞는 마지막 50줄(여러 서버를 시각순으로 합침). " +
                  "playerId나 roomId를 contains에 넣으면 그 사람/방 관련 줄만. 시각은 UTC HH:mm:ss.fff(이벤트와 같은 형식).")]
     public object LogsQuery(
-        [Description("서버 이름(비우면 전부)")] string? server = null,
+        [Description("서버 이름 또는 Unity 에이전트 이름(client, server, UnityEditor). 비우면 전부")] string? server = null,
         [Description("최소 수준")] LogLevel minLevel = LogLevel.Information,
         [Description("메시지/예외에 들어 있는 문자열(대소문자 무시)")] string? contains = null,
         [Description("이 시각 이후(UTC). ISO 8601(2026-10-16T11:30:00Z) 또는 HH:mm:ss(오늘 날짜로 봄 - 이벤트/로그의 t 값을 그대로 넣어도 됨)")] string? sinceUtc = null,

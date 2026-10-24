@@ -68,7 +68,7 @@ public sealed class RunManager
         var run = new HarnessRun(Path.GetFileName(dir), safeLabel, dir);
         lock (_lock) _current = run;
 
-        _timeline.SetWriter(new StreamWriter(run.EventsFile, append: true, new UTF8Encoding(false)));
+        _timeline.SetEventsFile(run.EventsFile);
         _timeline.RecordHarness("run.begin", $"실행 시작: {run.Id}", new { runId = run.Id, dir = run.Dir });
         return run;
     }
@@ -87,7 +87,7 @@ public sealed class RunManager
 
         if (run == null) return;
         _timeline.RecordHarness("run.end", $"실행 종료: {run.Id}", new { runId = run.Id });
-        _timeline.SetWriter(null);
+        _timeline.SetEventsFile(null);
     }
 
     /// <summary>runs 폴더에서 id로 실행 폴더를 찾는다(지난 실행의 서버를 정리할 때).</summary>

@@ -7,13 +7,15 @@ namespace TestHarness.Core;
 /// <summary>로그 한 줄(조회 응답용으로 다듬은 것).</summary>
 /// <param name="Level">Trace..Critical. JSON이 아닌 줄은 Raw(.log) / Error(.err.log).</param>
 /// <param name="Category">로거 이름의 마지막 부분(예: LobbyServer.Services.LobbyControlService → LobbyControlService).</param>
+/// <param name="Pid">로그를 찍은 프로세스(하네스가 받아 쓴 Unity 로그에만 있음 - AgentLogWriter). 서버 로그는 null.</param>
 public sealed record LogEntry(
     DateTimeOffset? Time,
     string Server,
     string Level,
     string? Category,
     string Message,
-    string? Exception);
+    string? Exception,
+    int? Pid = null);
 
 public sealed record LogQueryResult(
     int Matched,
@@ -44,6 +46,9 @@ public sealed record LogQuery(
 /// 로그 형식(ASP.NET Core JSON 콘솔 포매터): {"Timestamp":"...","EventId":0,"LogLevel":"Information",
 /// "Category":"...","Message":"...","Exception":"...","State":{...}}. 빌드 출력처럼 JSON이 아닌 줄도
 /// 버리지 않고 Raw로 싣는다(바로 앞 줄의 시각을 물려받음).
+///
+/// Unity 로그도 같은 폴더에 같은 형식으로 있다(logs/&lt;에이전트 이름&gt;.log - AgentLogWriter가 씀). 그래서 "서버"
+/// 이름 자리에 Unity 에이전트 이름(client, server, UnityEditor)을 넣으면 그 프로세스의 로그를 본다.
 /// </summary>
 public sealed class LogStore
 {
@@ -66,27 +71,8 @@ public sealed class LogStore
             return new LogQueryResult(0, 0, false, Array.Empty<LogEntry>(), Array.Empty<string>(), "로그 폴더가 없음 - 서버를 띄운 적이 없는 실행");
         }
 
-        var files = Directory.GetFiles(logsDir, "*.log")
-            .Where(f => query.Server == null || string.Equals(ServerNameOf(f), query.Server, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(f => f, StringComparer.Ordinal)
-            .ToList();
-
-        var matched = new List<LogEntry>();
-        foreach (var file in files)
-        {
-            var server = ServerNameOf(file);
-            var isErr = file.EndsWith(".err.log", StringComparison.OrdinalIgnoreCase);
-            DateTimeOffset? lastTime = null;
-
-            foreach (var line in ServerManager.ReadSharedLines(file))
-            {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-
-                var entry = Parse(line, server, isErr, lastTime);
-                lastTime = entry.Time ?? lastTime;
-                if (Accept(entry, query)) matched.Add(entry);
-            }
-        }
+        var files = LogFiles(logsDir, query.Server);
+        var matched = ReadEntries(files, entry => Accept(entry, query));
 
         // 여러 파일을 시각순으로 합친다(시각 없는 줄은 맨 앞 - 파일 첫 줄이 JSON이 아닌 경우뿐).
         var ordered = matched.OrderBy(e => e.Time ?? DateTimeOffset.MinValue).ToList();
@@ -106,6 +92,47 @@ public sealed class LogStore
         }
 
         return new LogQueryResult(ordered.Count, page.Count, truncated, page, files.Select(_paths.Relative).ToList(), hint);
+    }
+
+    /// <summary>
+    /// 한 실행의 모든 로그(서버 + Unity) 중 시각이 from~to 안인 줄 전부, 시각순 - 보고서의 방문 구간 기록(RunTrace)용.
+    /// 개수 제한이 없으니 도구 응답에 그대로 싣지 말 것.
+    /// </summary>
+    public IReadOnlyList<LogEntry> ReadRange(string logsDir, DateTimeOffset from, DateTimeOffset to)
+    {
+        if (!Directory.Exists(logsDir)) return Array.Empty<LogEntry>();
+
+        return ReadEntries(LogFiles(logsDir, null), e => e.Time is { } t && t >= from && t <= to)
+            .OrderBy(e => e.Time)
+            .ToList();
+    }
+
+    private static List<string> LogFiles(string logsDir, string? server) =>
+        Directory.GetFiles(logsDir, "*.log")
+            .Where(f => server == null || string.Equals(ServerNameOf(f), server, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .ToList();
+
+    private static List<LogEntry> ReadEntries(IEnumerable<string> files, Func<LogEntry, bool> accept)
+    {
+        var matched = new List<LogEntry>();
+        foreach (var file in files)
+        {
+            var server = ServerNameOf(file);
+            var isErr = file.EndsWith(".err.log", StringComparison.OrdinalIgnoreCase);
+            DateTimeOffset? lastTime = null;
+
+            foreach (var line in ServerManager.ReadSharedLines(file))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                var entry = Parse(line, server, isErr, lastTime);
+                lastTime = entry.Time ?? lastTime;
+                if (accept(entry)) matched.Add(entry);
+            }
+        }
+
+        return matched;
     }
 
     private string ResolveLogsDir(string? runId)
@@ -180,7 +207,12 @@ public sealed class LogStore
                     ? FirstLines(ex.GetString(), 3)
                     : null;
 
-                return new LogEntry(time, server, level, category, HarnessJson.Truncate(message, MaxMessageLength), exception);
+                int? pid = root.TryGetProperty("Pid", out var pidValue) && pidValue.ValueKind == JsonValueKind.Number &&
+                           pidValue.TryGetInt32(out var parsedPid)
+                    ? parsedPid
+                    : null;
+
+                return new LogEntry(time, server, level, category, HarnessJson.Truncate(message, MaxMessageLength), exception, pid);
             }
             catch (JsonException)
             {

@@ -25,7 +25,8 @@ public sealed class ServerTools
 
     [McpTool("server_build")]
     [Description("서버 코드를 빌드한다(dotnet build, Debug). 서버 코드를 고친 뒤 servers_start 전에 부를 것. 결과: 프로젝트별 성공 여부와 " +
-                 "중복을 뺀 오류 줄(최대 30개), 전체 출력 파일 경로. 서버가 떠 있으면 거부(실행 중인 DLL은 덮어쓸 수 없다).")]
+                 "중복을 뺀 오류 줄(최대 30개), 전체 출력 파일 경로. 서버를 하나라도 빌드하면 하네스 에이전트 쪽(Harness.Agent, <서버>.Harness)도 " +
+                 "이어서 빌드한다. 서버가 떠 있으면 거부(실행 중인 DLL은 덮어쓸 수 없다).")]
     public async Task<object> ServerBuild(
         [Description("빌드할 이름들(서버 이름 또는 BrokerInitializer). 비우면 전부")] string[]? names,
         CancellationToken ct)
@@ -67,9 +68,10 @@ public sealed class ServerTools
 
     [McpTool("servers_stop")]
     [Description("DevTools/stop-servers.ps1로 지금 실행의 서버를 전부 끈다(역순, 강제 종료). runId를 주면 그 실행에 남은 서버를 끈다" +
-                 "(harness_status의 orphans 정리). 기본은 Docker 컨테이너를 그대로 둔다.")]
+                 "(harness_status의 orphans 정리). 기본은 Docker 컨테이너도 내린다(docker-compose down - 컨테이너 제거, 결과 steps에 Docker=removed). " +
+                 "서버만 껐다 켤 때는 stopInfra=false.")]
     public async Task<object> ServersStop(
-        [Description("Docker 컨테이너(Redis/RabbitMQ/Kafka)도 내릴지")] bool stopInfra = false,
+        [Description("Docker 컨테이너(Redis/RabbitMQ/Kafka)도 내릴지(기본 true - 제거). 서버만 끄려면 false")] bool stopInfra = true,
         [Description("지난 실행 id(orphans 정리용). 비우면 지금 실행")] string? runId = null,
         CancellationToken ct = default)
     {

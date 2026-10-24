@@ -18,7 +18,8 @@ public sealed class HarnessTools
 
     [McpTool("harness_status")]
     [Description("하네스 전체 상태를 한 번에 본다: 지금 실행(run)과 폴더, 서버별 프로세스/에이전트 상태, 지난 실행에 남은 서버(orphans), " +
-                 "접속한 에이전트, 헤드리스 클라, 인프라(Redis/RabbitMQ/Kafka) 포트, 진행 중인 시나리오와 기대하는 다음 행동, 마지막 이벤트 번호. 작업을 시작할 때와 뭔가 이상할 때 먼저 부를 것.")]
+                 "접속한 에이전트, 헤드리스 클라, 인프라(Redis/RabbitMQ/Kafka) 포트, 지금 켜진 지속 조작(overrides - 배속, 재정비 설정값 ...), " +
+                 "진행 중인 시나리오와 기대하는 다음 행동, 마지막 이벤트 번호. 작업을 시작할 때와 뭔가 이상할 때 먼저 부를 것.")]
     public async Task<object> HarnessStatus(CancellationToken ct)
     {
         var run = _session.Runs.Current;
@@ -35,6 +36,7 @@ public sealed class HarnessTools
             agents = _session.Host.Agents.Select(a => new { a.Name, kind = a.ProcessKind, a.Pid, connected = a.IsConnected, commands = a.Commands.Count }),
             clients = _session.Clients.List().Select(c => new { c.Alias, c.PlayerId, stage = c.Stage }),
             infra = await InfraProbe.CheckAsync(ct),
+            overrides = _session.Overrides.Active is { Count: > 0 } active ? active.Select(o => o.View()) : null,
             scenario = _session.Scenarios.Status(),
             lastSeq = _session.Timeline.LastSeq,
             hint = orphans.Count > 0 ? "지난 실행의 서버가 살아 있음 - servers_stop(runId=...)로 정리할 것(포트가 겹쳐 새 서버가 못 뜬다)" : null,
@@ -70,7 +72,7 @@ public sealed class HarnessTools
     private void EnsureNoScenario(string what)
     {
         if (_session.Scenarios.IsActive)
-            throw new HarnessException($"{what} - 시나리오가 진행 중", "시나리오를 끝내거나(objective_report) 중단(scenario_abort)한 뒤에 할 것");
+            throw new HarnessException($"{what} - 시나리오가 진행 중", "scenario_finish로 끝낸 뒤에 할 것");
     }
 
     private void EnsureNoServers(string what)

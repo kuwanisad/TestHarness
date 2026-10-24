@@ -47,7 +47,7 @@ internal sealed class HarnessControlService : HarnessControl.HarnessControlBase
 
         try
         {
-            // 2. 수신 루프 - 명령 결과와 이벤트.
+            // 2. 수신 루프 - 명령 결과, 이벤트, 로그.
             while (await requestStream.MoveNext(ct))
             {
                 var message = requestStream.Current;
@@ -58,6 +58,9 @@ internal sealed class HarnessControlService : HarnessControl.HarnessControlBase
                         break;
                     case AgentMessage.PayloadOneofCase.Event:
                         _registry.RecordAgentEvent(session, message.Event);
+                        break;
+                    case AgentMessage.PayloadOneofCase.Log:
+                        _registry.RecordAgentLog(session, message.Log);
                         break;
                 }
             }
