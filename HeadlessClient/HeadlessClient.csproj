@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\HarnessShared\HarnessShared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- 서버(Grpc.AspNetCore 2.63.0 / Google.Protobuf 3.27.2)와 같은 버전대로 맞춘다. -->
     <PackageReference Include="Google.Protobuf" Version="3.27.2" />
     <PackageReference Include="Grpc.Net.Client" Version="2.63.0" />

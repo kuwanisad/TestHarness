@@ -75,8 +75,11 @@ public sealed class AgentSession
 
         if (!Commands.ContainsKey(commandName))
         {
+            // 게임 상태 조회(status.*)는 테스트 실행 전에 대상에 구현해 둬야 하는 것 - 없으면 그렇게 알린다.
+            if (commandName.StartsWith(HarnessSharedConstants.Areas.Status + ".", StringComparison.Ordinal))
+                return new CommandOutcome(false, "", $"[{Name}] " + string.Format(HarnessSharedConstants.Errors.ProbeMissingFormat, commandName, Name));
             return new CommandOutcome(false, "",
-                $"[{Name}] 모르는 명령 '{commandName}' (가능: {string.Join(", ", Commands.Keys.Order())})");
+                $"[{Name}] {HarnessSharedConstants.Errors.UnknownCommand} '{commandName}' (가능: {string.Join(", ", Commands.Keys.Order())})");
         }
 
         var id = Interlocked.Increment(ref _nextCommandId).ToString();

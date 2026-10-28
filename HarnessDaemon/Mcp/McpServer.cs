@@ -186,7 +186,8 @@ public sealed class McpServer
         }
         catch (HarnessException ex)
         {
-            return new ToolOutcome(HarnessJson.Serialize(new { error = ex.Message, hint = ex.Hint }), true);
+            // 실제 작업 실패(서버 기동 실패 등) - 숨기지 않고 AI에게 알려 다음 행동을 정하게 한다.
+            return new ToolError(ex.Message, ex.Hint).ToOutcome();
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {

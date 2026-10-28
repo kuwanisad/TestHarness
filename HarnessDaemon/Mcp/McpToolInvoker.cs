@@ -45,7 +45,7 @@ public sealed class McpToolInvoker : ITH_ToolInvoker
             }
             catch (HarnessException ex)
             {
-                text = HarnessJson.Serialize(new { error = ex.Message, hint = ex.Hint });
+                text = new ToolError(ex.Message, ex.Hint).ToOutcome().Text;
                 isError = true;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -56,7 +56,7 @@ public sealed class McpToolInvoker : ITH_ToolInvoker
         }
 
         _log?.Invoke($"[runner] {objective} {tool} {HarnessJson.Truncate(argumentsJson, 120)} → {(isError ? "ERROR" : "ok")} {stopwatch.Elapsed.TotalSeconds:0.0}s");
-        _calls.Record(tool, arguments, text, isError, stopwatch.Elapsed, objective, ToolCallLog.ActorRunner);
+        _calls.Record(tool, arguments, text, isError, stopwatch.Elapsed, objective, HarnessConstants.Actors.Runner);
 
         var parsed = HarnessJson.TryParse(text) ?? JsonSerializer.SerializeToElement(text);
         return new TH_ToolResult(parsed, isError, text);

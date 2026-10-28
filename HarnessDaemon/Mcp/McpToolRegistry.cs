@@ -102,16 +102,9 @@ public sealed class McpToolRegistry
             }
         }
 
-        object? result;
-        try
-        {
-            result = tool.Method.Invoke(tool.Target, values);
-        }
-        catch (TargetInvocationException ex) when (ex.InnerException != null)
-        {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
-            throw;
-        }
+        // DoNotWrapExceptions: 도구가 던진 예외를 리플렉션이 감싸지(잡지) 않고 그대로 부른 쪽(McpServer/McpToolInvoker)으로 보낸다.
+        // 감싸면 예외를 처음 잡는 곳이 .NET 내부 코드가 돼서, VS 디버거가 "사용자가 처리하지 않은 예외"로 멈춘다.
+        var result = tool.Method.Invoke(tool.Target, BindingFlags.DoNotWrapExceptions, binder: null, values, culture: null);
 
         if (result is Task task)
         {
@@ -119,10 +112,13 @@ public sealed class McpToolRegistry
             // 실제 객체 타입이 아니라 선언된 반환 타입으로 판단한다 - async Task 메서드도 실행 시에는
             // 제네릭 상태 머신 객체(Result = VoidTaskResult)라서.
             var declared = tool.Method.ReturnType;
-            return declared.IsGenericType && declared.GetGenericTypeDefinition() == typeof(Task<>)
+            result = declared.IsGenericType && declared.GetGenericTypeDefinition() == typeof(Task<>)
                 ? declared.GetProperty("Result")!.GetValue(task)
                 : null;
         }
+
+        // "없음/지금은 안 됨"은 도구가 ToolError로 돌려준다 - 부른 쪽이 한 가지(ToolOutcome)로 다루게 여기서 바꾼다.
+        if (result is ToolError error) return error.ToOutcome();
 
         return result;
     }

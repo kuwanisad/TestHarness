@@ -56,7 +56,6 @@ public enum InfraMode
 /// </summary>
 public sealed class ServerManager
 {
-    private static readonly TimeSpan AgentAttachTimeout = TimeSpan.FromSeconds(10);
 
     private readonly HarnessPaths _paths;
     private readonly RunManager _runs;
@@ -74,9 +73,9 @@ public sealed class ServerManager
         _runs = runs;
         _timeline = timeline;
         _host = host;
-        _powerShell = powerShellPath ?? (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "powershell.exe" : "pwsh");
+        _powerShell = powerShellPath ?? (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? HarnessConstants.DevTools.WindowsPowerShell : HarnessConstants.DevTools.PowerShellCore);
         _scriptEnvironment = scriptEnvironment;
-        ServerOrder = ReadServerOrder(Path.Combine(paths.DevTools, "server-common.ps1"));
+        ServerOrder = ReadServerOrder(Path.Combine(paths.DevTools, HarnessConstants.DevTools.CommonScript));
     }
 
     /// <summary>서버 이름과 기동 순서 - server-common.ps1의 $ServerOrder를 그대로 읽는다(목록을 두 곳에 두지 않게).</summary>
@@ -91,16 +90,16 @@ public sealed class ServerManager
         try
         {
             var run = _runs.EnsureCurrent();
-            var args = new List<string> { "-LogDir", run.LogsDir, "-HarnessAddress", _host.Address, "-ReadyTimeoutSeconds", readyTimeoutSeconds.ToString() };
-            if (infra == InfraMode.Skip) args.Add("-SkipDocker");
-            if (names.Count > 0) args.AddRange(new[] { "-Only", string.Join(',', names) });
+            var args = new List<string> { HarnessConstants.DevTools.LogDirArg, run.LogsDir, HarnessConstants.DevTools.HarnessAddressArg, _host.Address, HarnessConstants.DevTools.ReadyTimeoutArg, readyTimeoutSeconds.ToString() };
+            if (infra == InfraMode.Skip) args.Add(HarnessConstants.DevTools.SkipDockerArg);
+            if (names.Count > 0) args.AddRange(new[] { HarnessConstants.DevTools.OnlyArg, string.Join(',', names) });
 
             // 스크립트 제한 시간: 서버마다 준비 대기 + Docker/브로커 여유.
             var serverCount = names.Count > 0 ? names.Count : ServerOrder.Count;
             var timeout = TimeSpan.FromSeconds(readyTimeoutSeconds * serverCount + 120);
 
-            var report = await RunScriptAsync(run, "start", "start-servers.ps1", args, "start-result.json", timeout, ct);
-            _timeline.RecordHarness(report.Ok ? "servers.started" : "servers.start_failed", Summarize(report), report.Steps);
+            var report = await RunScriptAsync(run, HarnessConstants.DevTools.OperationStart, HarnessConstants.DevTools.StartScript, args, HarnessConstants.DevTools.StartResult, timeout, ct);
+            _timeline.RecordHarness(report.Ok ? HarnessConstants.HarnessEvents.ServersStarted : HarnessConstants.HarnessEvents.ServersStartFailed, Summarize(report), report.Steps);
             return report;
         }
         finally
@@ -113,13 +112,9 @@ public sealed class ServerManager
     public async Task<ServerOperationReport> ControlAsync(string name, string action, int readyTimeoutSeconds, CancellationToken ct)
     {
         var server = ValidateNames(new[] { name }).Single();
-        var scriptAction = action.ToLowerInvariant() switch
-        {
-            "kill" => "Kill",
-            "start" => "Start",
-            "restart" => "Restart",
-            _ => throw new HarnessException($"모르는 action '{action}'", "kill | start | restart 중 하나"),
-        };
+        var scriptAction = HarnessConstants.DevTools.ControlActions.TryGetValue(action, out var mapped)
+            ? mapped
+            : throw new HarnessException($"모르는 action '{action}'", $"{string.Join(" | ", HarnessConstants.DevTools.ControlActions.Keys)} 중 하나");
 
         await _gate.WaitAsync(ct);
         try
@@ -127,12 +122,12 @@ public sealed class ServerManager
             var run = _runs.Current ?? throw new HarnessException("열린 실행이 없음", "servers_start로 서버를 먼저 띄울 것");
             var args = new List<string>
             {
-                "-ServerName", server, "-Action", scriptAction, "-LogDir", run.LogsDir,
-                "-HarnessAddress", _host.Address, "-ReadyTimeoutSeconds", readyTimeoutSeconds.ToString(),
+                HarnessConstants.DevTools.ServerNameArg, server, HarnessConstants.DevTools.ActionArg, scriptAction, HarnessConstants.DevTools.LogDirArg, run.LogsDir,
+                HarnessConstants.DevTools.HarnessAddressArg, _host.Address, HarnessConstants.DevTools.ReadyTimeoutArg, readyTimeoutSeconds.ToString(),
             };
 
-            var report = await RunScriptAsync(run, scriptAction.ToLowerInvariant(), "control-server.ps1", args,
-                "control-result.json", TimeSpan.FromSeconds(readyTimeoutSeconds + 60), ct);
+            var report = await RunScriptAsync(run, scriptAction.ToLowerInvariant(), HarnessConstants.DevTools.ControlScript, args,
+                HarnessConstants.DevTools.ControlResult, TimeSpan.FromSeconds(readyTimeoutSeconds + HarnessConstants.DevTools.ControlExtraSeconds), ct);
             _timeline.RecordHarness($"server.{scriptAction.ToLowerInvariant()}", Summarize(report), report.Steps);
             return report;
         }
@@ -153,7 +148,7 @@ public sealed class ServerManager
             if (runId != null)
             {
                 var dir = _runs.FindRunDir(runId) ?? throw new HarnessException($"실행 '{runId}'를 찾지 못함", "harness_status의 orphans에 나온 runId를 쓸 것");
-                logsDir = Path.Combine(dir, "logs");
+                logsDir = Path.Combine(dir, HarnessConstants.RunFiles.LogsDir);
             }
             else
             {
@@ -161,31 +156,31 @@ public sealed class ServerManager
             }
 
             var before = ReadPidFile(logsDir);
-            var args = new List<string> { "-LogDir", logsDir };
-            if (!stopInfra) args.Add("-SkipDocker");
+            var args = new List<string> { HarnessConstants.DevTools.LogDirArg, logsDir };
+            if (!stopInfra) args.Add(HarnessConstants.DevTools.SkipDockerArg);
 
-            var transcript = transcriptRun?.NewFile("devtools", "stop.txt") ?? Path.GetFullPath(Path.Combine(logsDir, "..", "stop-transcript.txt"));
-            var result = await ProcessRunner.RunAsync(_powerShell, ScriptArguments("stop-servers.ps1", args), _paths.DevTools,
-                TimeSpan.FromSeconds(120), transcript, _scriptEnvironment, ct);
+            var transcript = transcriptRun?.NewFile(HarnessConstants.DevTools.TranscriptDir, HarnessConstants.DevTools.StopTranscript) ?? Path.GetFullPath(Path.Combine(logsDir, "..", HarnessConstants.DevTools.StopTranscriptOutsideRun));
+            var result = await ProcessRunner.RunAsync(_powerShell, ScriptArguments(HarnessConstants.DevTools.StopScript, args), _paths.DevTools,
+                TimeSpan.FromSeconds(HarnessConstants.Limits.ServerScriptTimeoutSeconds), transcript, _scriptEnvironment, ct);
 
             // stop-servers.ps1은 결과 파일을 안 쓴다 - PID 파일에 있던 프로세스가 실제로 죽었는지로 판단.
             var steps = before.Select(kv => new ServerStep(
-                    kv.Key, ProcessRunner.IsAlive(kv.Value) ? "failed" : "killed", kv.Value,
-                    ProcessRunner.IsAlive(kv.Value) ? "still-alive" : null, null, null, null, null))
+                    kv.Key, ProcessRunner.IsAlive(kv.Value) ? HarnessConstants.DevTools.StatusFailed : HarnessConstants.DevTools.StatusKilled, kv.Value,
+                    ProcessRunner.IsAlive(kv.Value) ? HarnessConstants.DevTools.DetailStillAlive : null, null, null, null, null))
                 .ToList();
 
             // Docker를 내렸으면(docker-compose down - 컨테이너 제거) 인프라 포트가 닫혔는지로 확인한다.
             if (stopInfra)
             {
                 var stillUp = (await InfraProbe.CheckAsync(ct)).Where(i => i.Up).Select(i => i.Name).ToList();
-                steps.Add(new ServerStep("Docker", stillUp.Count == 0 ? "removed" : "failed", null,
+                steps.Add(new ServerStep(HarnessConstants.DevTools.DockerStep, stillUp.Count == 0 ? HarnessConstants.DevTools.StatusRemoved : HarnessConstants.DevTools.StatusFailed, null,
                     stillUp.Count == 0 ? null : $"still-up: {string.Join(",", stillUp)}", null, null, null, null));
             }
-            var ok = result.ExitCode == 0 && steps.All(s => s.Status is "killed" or "removed");
+            var ok = result.ExitCode == 0 && steps.All(s => s.Status is HarnessConstants.DevTools.StatusKilled or HarnessConstants.DevTools.StatusRemoved);
 
-            var report = new ServerOperationReport(ok, "stop", result.ExitCode, steps, _paths.Relative(transcript),
+            var report = new ServerOperationReport(ok, HarnessConstants.DevTools.OperationStop, result.ExitCode, steps, _paths.Relative(transcript),
                 ok ? null : result.Tail(15), ok ? null : "남은 프로세스가 있으면 server_control(kill)로 하나씩 끄거나 transcript를 볼 것");
-            _timeline.RecordHarness("servers.stopped", Summarize(report), steps);
+            _timeline.RecordHarness(HarnessConstants.HarnessEvents.ServersStopped, Summarize(report), steps);
             return report;
         }
         finally
@@ -226,7 +221,7 @@ public sealed class ServerManager
         {
             if (currentDir != null && string.Equals(Path.GetFullPath(dir), Path.GetFullPath(currentDir), StringComparison.OrdinalIgnoreCase)) continue;
 
-            var alive = ReadPidFile(Path.Combine(dir, "logs"))
+            var alive = ReadPidFile(Path.Combine(dir, HarnessConstants.RunFiles.LogsDir))
                 .Where(kv => ProcessRunner.IsAlive(kv.Value))
                 .ToDictionary(kv => kv.Key, kv => kv.Value);
             if (alive.Count > 0) result.Add(new OrphanServers(Path.GetFileName(dir), alive));
@@ -242,7 +237,7 @@ public sealed class ServerManager
         HarnessRun run, string action, string script, List<string> args, string resultFileName, TimeSpan timeout, CancellationToken ct)
     {
         var resultFile = Path.Combine(run.LogsDir, resultFileName);
-        var transcript = run.NewFile("devtools", $"{action}.txt");
+        var transcript = run.NewFile(HarnessConstants.DevTools.TranscriptDir, $"{action}.txt");
         var result = await ProcessRunner.RunAsync(_powerShell, ScriptArguments(script, args), _paths.DevTools,
             timeout, transcript, _scriptEnvironment, ct);
 
@@ -260,19 +255,19 @@ public sealed class ServerManager
         bool scriptOk;
         using (var document = JsonDocument.Parse(await File.ReadAllTextAsync(resultFile, Encoding.UTF8, ct)))
         {
-            scriptOk = document.RootElement.TryGetProperty("ok", out var okElement) && okElement.ValueKind == JsonValueKind.True;
+            scriptOk = document.RootElement.TryGetProperty(HarnessConstants.DevTools.ResultOk, out var okElement) && okElement.ValueKind == JsonValueKind.True;
             foreach (var item in EnumerateResults(document.RootElement))
             {
-                var status = GetString(item, "status") ?? "unknown";
-                var pid = item.TryGetProperty("pid", out var pidElement) && pidElement.TryGetInt32(out var p) && p > 0 ? p : (int?)null;
-                var log = GetString(item, "log");
-                var errLog = GetString(item, "errLog");
+                var status = GetString(item, HarnessConstants.DevTools.StepStatus) ?? HarnessConstants.DevTools.StatusUnknown;
+                var pid = item.TryGetProperty(HarnessConstants.DevTools.StepPid, out var pidElement) && pidElement.TryGetInt32(out var p) && p > 0 ? p : (int?)null;
+                var log = GetString(item, HarnessConstants.DevTools.StepLog);
+                var errLog = GetString(item, HarnessConstants.DevTools.StepErrLog);
                 steps.Add(new ServerStep(
-                    GetString(item, "name") ?? "?", status, pid, NullIfEmpty(GetString(item, "detail")),
+                    GetString(item, HarnessConstants.DevTools.StepName) ?? "?", status, pid, NullIfEmpty(GetString(item, HarnessConstants.DevTools.StepDetail)),
                     string.IsNullOrEmpty(log) ? null : _paths.Relative(log),
                     string.IsNullOrEmpty(errLog) ? null : _paths.Relative(errLog),
                     null,
-                    status == "failed" ? NullIfEmpty(ReadFailureTail(log, errLog)) : null));
+                    status == HarnessConstants.DevTools.StatusFailed ? NullIfEmpty(ReadFailureTail(log, errLog)) : null));
             }
         }
 
@@ -280,12 +275,12 @@ public sealed class ServerManager
         // 누락, 프로토콜 버전 불일치) 이후 명령/이벤트가 전부 안 되므로 여기서 드러내야 한다.
         for (var i = 0; i < steps.Count; i++)
         {
-            if (steps[i].Status != "ready" || !ServerOrder.Contains(steps[i].Name)) continue;
+            if (steps[i].Status != HarnessConstants.DevTools.StatusReady || !ServerOrder.Contains(steps[i].Name)) continue;
 
             bool attached;
             try
             {
-                var session = await _host.WaitForAgentAsync(steps[i].Name, AgentAttachTimeout, ct);
+                var session = await _host.WaitForAgentAsync(steps[i].Name, TimeSpan.FromSeconds(HarnessConstants.Limits.AgentAttachTimeoutSeconds), ct);
                 attached = session.IsConnected;
             }
             catch (TimeoutException)
@@ -298,10 +293,10 @@ public sealed class ServerManager
 
         var ok = scriptOk && result.ExitCode == 0 && steps.All(s => s.AgentAttached != false);
         string? hint = null;
-        if (steps.Any(s => s.Detail == "missing-dll")) hint = "빌드된 DLL이 없음 - servers_stop 후 server_build를 하고 다시 servers_start";
-        else if (steps.Any(s => s.Detail == "missing-harness"))
+        if (steps.Any(s => s.Detail == HarnessConstants.DevTools.DetailMissingDll)) hint = "빌드된 DLL이 없음 - servers_stop 후 server_build를 하고 다시 servers_start";
+        else if (steps.Any(s => s.Detail == HarnessConstants.DevTools.DetailMissingHarness))
             hint = "하네스 에이전트 DLL(Server/GameServer/Shared/Test/bin)이 없음 - servers_stop 후 server_build(서버를 빌드하면 하네스 쪽도 같이 빌드)를 하고 다시 servers_start";
-        else if (steps.Any(s => s.Detail == "already-running")) hint = "이미 떠 있는 서버가 있음 - servers_stop(지난 실행이면 runId)으로 끈 뒤 다시 시작";
+        else if (steps.Any(s => s.Detail == HarnessConstants.DevTools.DetailAlreadyRunning)) hint = "이미 떠 있는 서버가 있음 - servers_stop(지난 실행이면 runId)으로 끈 뒤 다시 시작";
         else if (!scriptOk) hint = "실패한 단계의 logTail을 볼 것. 이미 뜬 서버는 그대로 있으니 servers_stop으로 정리한 뒤 다시 시작";
         else if (steps.Any(s => s.AgentAttached == false))
             hint = "서버는 떴지만 하네스 에이전트가 안 붙음 - 그 서버 로그에서 Harness.Agent 줄(접속 실패 사유)을 찾아볼 것. " +
@@ -315,10 +310,10 @@ public sealed class ServerManager
 
     private List<string> ScriptArguments(string script, IEnumerable<string> args)
     {
-        var list = new List<string> { "-NoProfile" };
+        var list = new List<string>(HarnessConstants.DevTools.PowerShellArguments);
         // Windows PowerShell은 실행 정책 때문에 서명 안 된 스크립트를 막을 수 있다 - 이 실행에만 풀어준다.
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) list.AddRange(new[] { "-ExecutionPolicy", "Bypass" });
-        list.AddRange(new[] { "-File", Path.Combine(_paths.DevTools, script) });
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) list.AddRange(HarnessConstants.DevTools.WindowsPowerShellArguments);
+        list.AddRange(new[] { HarnessConstants.DevTools.FileArgument, Path.Combine(_paths.DevTools, script) });
         list.AddRange(args);
         return list;
     }
@@ -371,7 +366,7 @@ public sealed class ServerManager
 
     internal static Dictionary<string, int> ReadPidFile(string logsDir)
     {
-        var path = Path.Combine(logsDir, "server-pids.json");
+        var path = Path.Combine(logsDir, HarnessConstants.DevTools.PidFile);
         var map = new Dictionary<string, int>(StringComparer.Ordinal);
         if (!File.Exists(path)) return map;
 
@@ -395,7 +390,7 @@ public sealed class ServerManager
 
     private static IEnumerable<JsonElement> EnumerateResults(JsonElement root)
     {
-        if (!root.TryGetProperty("results", out var results)) yield break;
+        if (!root.TryGetProperty(HarnessConstants.DevTools.ResultSteps, out var results)) yield break;
 
         // ConvertTo-Json은 원소가 하나뿐인 배열을 객체 하나로 풀어 쓸 때가 있다 - 둘 다 받는다.
         if (results.ValueKind == JsonValueKind.Array)

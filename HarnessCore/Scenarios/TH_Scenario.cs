@@ -96,7 +96,7 @@ public sealed class TH_ScenarioBuilder
     public bool PlayFinishSound { get; set; } = true;
 
     /// <summary>AI 지시가 이 시간 동안 없으면(노드 실행 중은 빼고) 하네스가 정리하고 끝낸다 - 토큰이 떨어진 경우 등(기본 2분).</summary>
-    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(2);
+    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(HarnessConstants.Limits.DefaultIdleTimeoutMinutes);
 
     private TH_LogFilter? _logs;
 
@@ -163,7 +163,7 @@ public sealed class TH_ScenarioBuilder
 
         if (_nodes.Distinct().Count() != _nodes.Count) throw new InvalidOperationException($"시나리오 {name}: 같은 노드를 두 번 넣음");
 
-        var initial = new TH_StateMap(new[] { new KeyValuePair<string, string>(TH_StateMap.Global, InitialState) }
+        var initial = new TH_StateMap(new[] { new KeyValuePair<string, string>(HarnessConstants.States.GlobalScope, InitialState) }
             .Concat(_targets.Where(t => t.InitialState != null).Select(t => new KeyValuePair<string, string>(t.Name, t.InitialState!))));
 
         return new TH_ScenarioDefinition(name, title, string.Join("\n", _context), _preconditions.ToArray(), _cautions.ToArray(),
@@ -241,9 +241,20 @@ public sealed class TH_ScenarioCatalog
     public IEnumerable<(string Name, string Title)> List =>
         _scenarios.Values.OrderBy(s => s.Attribute.Name, StringComparer.Ordinal).Select(s => (s.Attribute.Name, s.Attribute.Title));
 
-    /// <summary>어셈블리의 [TH_Scenario] 클래스를 등록한다. 그래프는 여기서 한 번 만들어 보고 오류(ID 중복 등)를 바로 알린다.</summary>
+    private readonly HashSet<Type> _knowledge = new();
+
+    /// <summary>
+    /// 어셈블리를 등록한다 - 먼저 그 프로젝트의 지식(ITH_GameKnowledge 구현)을 넣고, 그다음 [TH_Scenario] 클래스를 모은다. 그래프는 여기서 한 번
+    /// 만들어 보고 오류(ID 중복 등)를 바로 알린다.
+    /// </summary>
     public void Register(Assembly assembly)
     {
+        foreach (var type in assembly.GetTypes().Where(t => typeof(ITH_GameKnowledge).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface))
+        {
+            if (!_knowledge.Add(type)) continue;
+            ((ITH_GameKnowledge)Activator.CreateInstance(type, nonPublic: true)!).Register(new TH_GameKnowledge());
+        }
+
         foreach (var type in assembly.GetTypes())
         {
             var attribute = type.GetCustomAttribute<TH_ScenarioAttribute>();

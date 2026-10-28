@@ -14,9 +14,9 @@ public sealed class TH_FullMatchScenario : TH_Scenario
 {
     protected override void Build(TH_ScenarioBuilder s)
     {
-        var client = s.UnityClient("client1", startScene: TH_Scenes.Login);
-        var server = s.UnityServer(startScene: TH_Scenes.ServerBoot);
-        var editor = s.UnityEditor(bootScene: TH_Scenes.HarnessBoot); // 씬 이름은 TH_Scenes - ⚠ Unity 씬 파일 이름과 같아야 함
+        var client = s.UnityClient("client1", startScene: Scenes.Login);
+        var server = s.UnityServer(startScene: Scenes.ServerBoot);
+        var editor = s.UnityEditor(bootScene: Scenes.HarnessBoot); // 씬 이름은 HarnessConstants.Scenes - ⚠ Unity 씬 파일 이름과 같아야 함
 
         s.Context("정상 한 판 회귀 확인 - 서버나 클라 코드를 고친 뒤, 로그인 → 매칭 → 인게임 → 게임 종료 → 로비 복귀 → 인게임 서버 부하 복귀가 " +
                   "정상인지 본다. 기본은 ServersUp → AccountReady@client1 → UnityPlay@client1 → Login@client1 → EnterGame@client1 → " +

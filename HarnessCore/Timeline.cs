@@ -34,7 +34,7 @@ public sealed record EventFilter(
     {
         // 도구 호출 기록(source="ai" - AI, "runner" - 노드를 실행하는 하네스, ToolCallLog)은 출처를 지정했을 때만 - 그냥 "다음 이벤트"를
         // 기다리거나 조회할 때 방금 자기가 부른 도구가 걸리지 않게.
-        if (string.IsNullOrEmpty(Source) && (e.Source == ToolCallLog.Source || e.Source == ToolCallLog.RunnerSource)) return false;
+        if (string.IsNullOrEmpty(Source) && (e.Source == HarnessConstants.Sources.Ai || e.Source == HarnessConstants.Sources.Runner)) return false;
         if (!string.IsNullOrEmpty(Source) && !SourceMatches(e.Source, Source)) return false;
         if (Names is { Count: > 0 } && !Names.Any(n => string.Equals(n, e.Name, StringComparison.OrdinalIgnoreCase))) return false;
         if (!string.IsNullOrEmpty(PlayerId) && !string.Equals(e.PlayerId, PlayerId, StringComparison.Ordinal)) return false;
@@ -87,9 +87,6 @@ public sealed record EventFilter(
 /// </summary>
 public sealed class Timeline
 {
-    /// <summary>메모리에 들고 있는 최대 개수. 넘으면 오래된 것부터 버린다(파일에는 다 남아 있음).</summary>
-    public const int MaxInMemory = 100_000;
-
     private readonly object _lock = new();
     private readonly List<TimelineEvent> _events = new();
     private readonly List<Waiter> _waiters = new();
@@ -123,7 +120,7 @@ public sealed class Timeline
         {
             evt = new TimelineEvent(_nextSeq++, timestampUtc, source, name, string.IsNullOrEmpty(playerId) ? null : playerId, detail, data);
             _events.Add(evt);
-            if (_events.Count > MaxInMemory) _events.RemoveRange(0, _events.Count - MaxInMemory);
+            if (_events.Count > HarnessConstants.Limits.TimelineInMemory) _events.RemoveRange(0, _events.Count - HarnessConstants.Limits.TimelineInMemory);
 
             // 파일 기록 실패가 판정(메모리 이벤트)까지 막으면 안 된다(AppendLine은 던지지 않음).
             if (_eventsFile != null) HarnessFiles.AppendLine(_eventsFile, HarnessJson.Serialize(evt));
@@ -157,15 +154,15 @@ public sealed class Timeline
 
     /// <summary>하네스 자신이 남기는 이벤트(서버 기동 결과 등).</summary>
     public TimelineEvent RecordHarness(string name, string detail, object? data = null) =>
-        Record(DateTimeOffset.UtcNow, "harness", name, null, detail, data == null ? null : HarnessJson.ToElement(data));
+        Record(DateTimeOffset.UtcNow, HarnessConstants.Sources.Harness, name, null, detail, data == null ? null : HarnessJson.ToElement(data));
 
     /// <summary>HarnessHost(에이전트 접속/이벤트) → 타임라인.</summary>
     public void RecordAgentEvent(HarnessEvent e) =>
-        Record(e.TimestampUtc, HarnessConstants.AgentEvents.SourcePrefix + e.AgentName, e.Name, e.PlayerId, "", HarnessJson.TryParse(e.DataJson));
+        Record(e.TimestampUtc, HarnessConstants.Sources.AgentPrefix + e.AgentName, e.Name, e.PlayerId, "", HarnessJson.TryParse(e.DataJson));
 
     /// <summary>헤드리스 클라 이벤트 → 타임라인. 출처 이름은 클라 이름(= 하네스 별칭).</summary>
     public void RecordClientEvent(ClientEvent e) =>
-        Record(e.TimestampUtc, $"client:{e.ClientName}", e.Kind.ToString(), e.PlayerId, e.Detail,
+        Record(e.TimestampUtc, HarnessConstants.Sources.ClientPrefix + e.ClientName, e.Kind.ToString(), e.PlayerId, e.Detail,
             e.Data == null ? null : HarnessJson.ToElement(e.Data));
 
     /// <summary>sinceSeq 뒤의 이벤트 중 조건에 맞는 것. fromEnd면 마지막 limit개(시간순 정렬은 유지).</summary>

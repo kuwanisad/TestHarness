@@ -52,7 +52,6 @@ public sealed record LogQuery(
 /// </summary>
 public sealed class LogStore
 {
-    public const int MaxMessageLength = 400;
 
     private readonly RunManager _runs;
     private readonly HarnessPaths _paths;
@@ -108,7 +107,7 @@ public sealed class LogStore
     }
 
     private static List<string> LogFiles(string logsDir, string? server) =>
-        Directory.GetFiles(logsDir, "*.log")
+        Directory.GetFiles(logsDir, "*" + HarnessConstants.RunFiles.LogExtension)
             .Where(f => server == null || string.Equals(ServerNameOf(f), server, StringComparison.OrdinalIgnoreCase))
             .OrderBy(f => f, StringComparer.Ordinal)
             .ToList();
@@ -119,7 +118,7 @@ public sealed class LogStore
         foreach (var file in files)
         {
             var server = ServerNameOf(file);
-            var isErr = file.EndsWith(".err.log", StringComparison.OrdinalIgnoreCase);
+            var isErr = file.EndsWith(HarnessConstants.RunFiles.ErrorLogSuffix, StringComparison.OrdinalIgnoreCase);
             DateTimeOffset? lastTime = null;
 
             foreach (var line in ServerManager.ReadSharedLines(file))
@@ -140,7 +139,7 @@ public sealed class LogStore
         if (runId != null)
         {
             var dir = _runs.FindRunDir(runId) ?? throw new HarnessException($"실행 '{runId}'를 찾지 못함");
-            return Path.Combine(dir, "logs");
+            return Path.Combine(dir, HarnessConstants.RunFiles.LogsDir);
         }
 
         return (_runs.Current ?? throw new HarnessException("열린 실행이 없음", "runId로 지난 실행을 지정하거나 run_begin/servers_start 먼저")).LogsDir;
@@ -172,7 +171,7 @@ public sealed class LogStore
 
     private static LogLevel LevelOf(string level) => level switch
     {
-        "Raw" => LogLevel.Information,
+        HarnessConstants.LogLevels.Raw => LogLevel.Information,
         _ => Enum.TryParse<LogLevel>(level, ignoreCase: true, out var parsed) ? parsed : LogLevel.Information,
     };
 
@@ -180,7 +179,7 @@ public sealed class LogStore
     internal static string Render(string line)
     {
         var entry = Parse(line, "", isErr: false, lastTime: null);
-        if (entry.Level == "Raw") return entry.Message;
+        if (entry.Level == HarnessConstants.LogLevels.Raw) return entry.Message;
 
         var time = entry.Time is { } t ? t.UtcDateTime.ToString("HH:mm:ss.fff") + " " : "";
         var exception = entry.Exception != null ? " | " + entry.Exception : "";
@@ -195,24 +194,24 @@ public sealed class LogStore
             {
                 using var document = JsonDocument.Parse(line);
                 var root = document.RootElement;
-                var time = root.TryGetProperty("Timestamp", out var ts) && ts.ValueKind == JsonValueKind.String &&
+                var time = root.TryGetProperty(HarnessConstants.LogFields.Timestamp, out var ts) && ts.ValueKind == JsonValueKind.String &&
                            DateTimeOffset.TryParse(ts.GetString(), CultureInfo.InvariantCulture,
                                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
                     ? parsed
                     : lastTime;
-                var level = root.TryGetProperty("LogLevel", out var lv) ? lv.GetString() ?? "Information" : "Information";
-                var category = root.TryGetProperty("Category", out var cat) ? ShortCategory(cat.GetString()) : null;
-                var message = root.TryGetProperty("Message", out var msg) ? msg.GetString() ?? "" : "";
-                var exception = root.TryGetProperty("Exception", out var ex) && ex.ValueKind == JsonValueKind.String
+                var level = root.TryGetProperty(HarnessConstants.LogFields.LogLevel, out var lv) ? lv.GetString() ?? HarnessConstants.LogLevels.Information : HarnessConstants.LogLevels.Information;
+                var category = root.TryGetProperty(HarnessConstants.LogFields.Category, out var cat) ? ShortCategory(cat.GetString()) : null;
+                var message = root.TryGetProperty(HarnessConstants.LogFields.Message, out var msg) ? msg.GetString() ?? "" : "";
+                var exception = root.TryGetProperty(HarnessConstants.LogFields.Exception, out var ex) && ex.ValueKind == JsonValueKind.String
                     ? FirstLines(ex.GetString(), 3)
                     : null;
 
-                int? pid = root.TryGetProperty("Pid", out var pidValue) && pidValue.ValueKind == JsonValueKind.Number &&
+                int? pid = root.TryGetProperty(HarnessConstants.LogFields.Pid, out var pidValue) && pidValue.ValueKind == JsonValueKind.Number &&
                            pidValue.TryGetInt32(out var parsedPid)
                     ? parsedPid
                     : null;
 
-                return new LogEntry(time, server, level, category, HarnessJson.Truncate(message, MaxMessageLength), exception, pid);
+                return new LogEntry(time, server, level, category, HarnessJson.Truncate(message, HarnessConstants.Limits.LogMessageMaxLength), exception, pid);
             }
             catch (JsonException)
             {
@@ -220,7 +219,7 @@ public sealed class LogStore
             }
         }
 
-        return new LogEntry(lastTime, server, isErr ? "Error" : "Raw", null, HarnessJson.Truncate(line, MaxMessageLength), null);
+        return new LogEntry(lastTime, server, isErr ? HarnessConstants.LogLevels.Error : HarnessConstants.LogLevels.Raw, null, HarnessJson.Truncate(line, HarnessConstants.Limits.LogMessageMaxLength), null);
     }
 
     private static string? ShortCategory(string? category)
@@ -234,6 +233,6 @@ public sealed class LogStore
     {
         if (string.IsNullOrEmpty(text)) return null;
         var lines = text.Split('\n').Take(count).Select(l => l.TrimEnd('\r'));
-        return HarnessJson.Truncate(string.Join(" | ", lines), MaxMessageLength);
+        return HarnessJson.Truncate(string.Join(" | ", lines), HarnessConstants.Limits.LogMessageMaxLength);
     }
 }

@@ -8,7 +8,7 @@ public sealed class HeadlessClientOptions
     public string Name { get; init; } = "client";
 
     /// <summary>로그인 서버 주소 - Unity ClientInstance._loginAddress 기본값과 같다.</summary>
-    public string LoginAddress { get; init; } = "https://localhost:5400";
+    public string LoginAddress { get; init; } = HarnessConstants.Defaults.LoginAddress;
 
     /// <summary>
     /// [로컬 개발 전용] 서버 인증서 검증을 건너뛸지. Unity 클라(YetAnotherHttpHandlerFactory.
@@ -19,7 +19,7 @@ public sealed class HeadlessClientOptions
 
     /// <summary>단항 RPC 하나의 기본 제한 시간 - 서버가 응답 없이 멈춰도 테스트가 영원히
     /// 안 끝나는 일이 없게 한다(진짜 클라에는 없는 장치 - 테스트 하네스 전용).</summary>
-    public TimeSpan RpcTimeout { get; init; } = TimeSpan.FromSeconds(15);
+    public TimeSpan RpcTimeout { get; init; } = TimeSpan.FromSeconds(HarnessConstants.Limits.HeadlessRpcTimeoutSeconds);
 
     /// <summary>이벤트가 기록될 때마다 한 줄씩 받는다(콘솔/파일 출력용). null이면 출력 안 함 -
     /// 이벤트 자체는 항상 <see cref="HeadlessClient.Events"/>에 남는다.</summary>

@@ -65,7 +65,7 @@ internal sealed class AgentRegistry
         var session = new AgentSession(hello, _commandTimeout);
         lock (_lock) _sessions[hello.Name] = session;
 
-        Events.Record(DateTimeOffset.UtcNow, hello.Name, HarnessEventNames.Attached, "",
+        Events.Record(DateTimeOffset.UtcNow, hello.Name, HarnessSharedConstants.Events.HarnessAttached, "",
             JsonSerializer.Serialize(new
             {
                 kind = hello.ProcessKind,
@@ -88,12 +88,12 @@ internal sealed class AgentRegistry
             }
         }
 
-        Events.Record(DateTimeOffset.UtcNow, session.Name, HarnessEventNames.Detached, "",
+        Events.Record(DateTimeOffset.UtcNow, session.Name, HarnessSharedConstants.Events.HarnessDetached, "",
             JsonSerializer.Serialize(new { reason }, JsonOptions));
     }
 
     public void RecordRejected(Hello hello, string reason) =>
-        Events.Record(DateTimeOffset.UtcNow, hello.Name, HarnessEventNames.Rejected, "",
+        Events.Record(DateTimeOffset.UtcNow, hello.Name, HarnessSharedConstants.Events.HarnessRejected, "",
             JsonSerializer.Serialize(new { reason, pid = hello.Pid }, JsonOptions));
 
     public void RecordAgentEvent(AgentSession session, AgentEvent evt)
@@ -113,6 +113,6 @@ internal sealed class AgentRegistry
             ? DateTimeOffset.FromUnixTimeMilliseconds(log.TimestampUnixMs)
             : DateTimeOffset.UtcNow;
         _logSink(new AgentLogRecord(session.Name, session.Pid, timestamp,
-            string.IsNullOrEmpty(log.Level) ? "Information" : log.Level, log.Category, log.Message, log.Exception));
+            string.IsNullOrEmpty(log.Level) ? HarnessConstants.LogLevels.Information : log.Level, log.Category, log.Message, log.Exception));
     }
 }

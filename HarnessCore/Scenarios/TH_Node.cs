@@ -17,6 +17,9 @@ public enum TH_Result
 
     /// <summary>판단할 수 없음(근거 부족, 확인 불가, 자동 실행의 AI 판정 노드) - 모르는 걸 채우는 대신 쓰는 출구.</summary>
     Unverified,
+
+    /// <summary>테스트를 일찍 끝내느라(scenario_finish) 실행 중에 멈춤 - 판정하지 않는다. 하네스만 정한다(AI 판정 결과로는 못 씀).</summary>
+    Stopped,
 }
 
 /// <summary>묶음 노드 안에서 자식이 통과하지 못했을 때(Fail/Unverified) 나머지 자식을 어떻게 할지.</summary>
@@ -37,6 +40,7 @@ public sealed record TH_Verdict(TH_Result Result, string Reason, IReadOnlyList<l
     public static TH_Verdict Pass(string reason, params long[] evidence) => new(TH_Result.Pass, reason, evidence);
     public static TH_Verdict Fail(string reason, params long[] evidence) => new(TH_Result.Fail, reason, evidence);
     public static TH_Verdict Unverified(string reason, params long[] evidence) => new(TH_Result.Unverified, reason, evidence);
+    public static TH_Verdict Stopped(string reason) => new(TH_Result.Stopped, reason, Array.Empty<long>());
 
     /// <summary>조건이 참이면 Pass, 아니면 Fail(같은 근거).</summary>
     public static TH_Verdict PassIf(bool condition, string passReason, string failReason, params long[] evidence) =>
@@ -59,7 +63,7 @@ public sealed record TH_Verdict(TH_Result Result, string Reason, IReadOnlyList<l
 ///
 /// 상태: 하네스는 칸(범위)별 상태를 들고 있다(TH_StateMap - 전역 + 상태 칸을 가진 대상마다). From은 칸마다 "시작할 수 있는 상태들"
 /// (적은 칸은 전부 맞아야 시작 - 안 적은 칸은 보지 않음), To는 칸마다 "통과하면 될 상태"(안 적은 칸은 그대로). 대상 없이 쓰면 전역 칸.
-/// 하네스는 시작할 수 없는 노드로의 이동을 거부한다. 상태 이름은 시나리오들이 같이 쓰는 문자열(TH_States 등).
+/// 하네스는 시작할 수 없는 노드로의 이동을 거부한다. 상태 이름은 시나리오들이 같이 쓰는 문자열(HarnessConstants.States).
 ///
 /// 대상을 받는 노드는 노드 함수로 만든다(<see cref="For"/> - ID는 "이름@대상", 같은 대상이면 같은 인스턴스). 대상 없는 노드는
 /// 여러 시나리오가 공유한다(HarnessScenarios/Nodes). 어느 쪽이든 정의할 때 설정(From/To/...)을 끝내고 그 뒤로는 바꾸지 않는다.
@@ -73,6 +77,7 @@ public sealed class TH_Node
     private readonly List<string> _forbids = new();
     private readonly List<string> _needs = new();
     private readonly List<string> _hints = new();
+    private readonly List<(TH_Target Target, string Command)> _probes = new();
 
     private TH_Node(string id, string goal, string passCriteria, Func<TH_RunContext, Task>? auto,
         Func<TH_JudgeContext, TH_Verdict>? judge, IReadOnlyList<TH_Node> children)
@@ -165,13 +170,13 @@ public sealed class TH_Node
     public IReadOnlyList<string> Hints => _hints;
 
     /// <summary>전역 칸이 이 상태들 중 하나일 때만 시작할 수 있다.</summary>
-    public TH_Node From(params string[] states) => AddFrom(TH_StateMap.Global, states);
+    public TH_Node From(params string[] states) => AddFrom(HarnessConstants.States.GlobalScope, states);
 
     /// <summary>그 대상의 칸이 이 상태들 중 하나일 때만 시작할 수 있다.</summary>
     public TH_Node From(TH_Target target, params string[] states) => AddFrom(StateScope(target), states);
 
     /// <summary>통과하면 전역 칸이 이 상태가 된다.</summary>
-    public TH_Node To(string state) => AddTo(TH_StateMap.Global, state);
+    public TH_Node To(string state) => AddTo(HarnessConstants.States.GlobalScope, state);
 
     /// <summary>통과하면 그 대상의 칸이 이 상태가 된다.</summary>
     public TH_Node To(TH_Target target, string state) => AddTo(StateScope(target), state);
@@ -254,6 +259,22 @@ public sealed class TH_Node
         _needs.AddRange(CheckKinds(overrideKinds, nameof(Needs)));
         return this;
     }
+
+    /// <summary>
+    /// 이 노드가 그 대상에 부르는 게임 상태 조회(status.* - 테스트 실행 전에 대상 쪽에 구현해 둬야 하는 것). 하네스가 노드를 돌리기 전에 대상의 명령
+    /// 목록(접속할 때 알린 것)과 비교해 없으면 실행하지 않고 실패로 남긴다("구현부가 없음"). 대상이 아직 안 붙었으면 그때 비교하지 못하고, 붙는 순간
+    /// 시나리오 전체의 선언과 비교해 타임라인에 남긴다(scenario.probe_missing).
+    /// </summary>
+    public TH_Node Probes(TH_Target target, params string[] commands)
+    {
+        if (commands.Length == 0) throw new ArgumentException($"노드 {Id}: Probes에 명령이 없음");
+        // 대상 선언 검사(Uses)는 하지 않는다 - 비교는 대상 이름으로 하고, 인게임 서버처럼 노드가 공유 인스턴스(TH_Unity.Server)로 부르는 대상도 있다.
+        foreach (var command in commands)
+            if (!_probes.Contains((target, command))) _probes.Add((target, command));
+        return this;
+    }
+
+    public IReadOnlyList<(TH_Target Target, string Command)> ProbedCommands => _probes;
 
     public IReadOnlyList<string> ForbiddenOverrides => _forbids;
     public IReadOnlyList<string> NeededOverrides => _needs;

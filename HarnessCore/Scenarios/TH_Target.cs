@@ -16,7 +16,7 @@ public abstract class TH_Target
     protected TH_Target(string name, string kind)
     {
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("대상 이름이 비어 있음");
-        if (string.Equals(name, TH_StateMap.Global, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(name, HarnessConstants.States.GlobalScope, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException($"대상 이름 '{name}'는 쓸 수 없음(전역 상태 칸 이름)");
         Name = name;
         Kind = kind;
@@ -57,12 +57,11 @@ public abstract class TH_Target
 }
 
 /// <summary>
-/// 시나리오 진행 상태 - 칸(범위)마다 상태 하나. 칸은 전역(<see cref="Global"/> - 서버/Unity Play 같은 전체 상태)과 상태 칸을 가진
+/// 시나리오 진행 상태 - 칸(범위)마다 상태 하나. 칸은 전역(<see cref="HarnessConstants.States.GlobalScope"/> - 서버/Unity Play 같은 전체 상태)과 상태 칸을 가진
 /// 대상(클라)마다 하나. 예: { global: ServersUp, client1: Lobby, client2: Login }. 바뀌지 않는 값 - 바꾸면 새 인스턴스.
 /// </summary>
 public sealed class TH_StateMap
 {
-    public const string Global = "global";
 
     private readonly Dictionary<string, string> _states;
     private readonly List<string> _order;

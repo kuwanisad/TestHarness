@@ -14,11 +14,11 @@ public sealed class TH_MultiClientScenario : TH_Scenario
 {
     protected override void Build(TH_ScenarioBuilder s)
     {
-        var client1 = s.UnityClient("client1", startScene: TH_Scenes.Login);
-        var client2 = s.UnityClient("client2", startScene: TH_Scenes.Login);
+        var client1 = s.UnityClient("client1", startScene: Scenes.Login);
+        var client2 = s.UnityClient("client2", startScene: Scenes.Login);
         var headless = s.HeadlessClient("hc1");
-        var server = s.UnityServer(startScene: TH_Scenes.ServerBoot);
-        var editor = s.UnityEditor(bootScene: TH_Scenes.HarnessBoot); // 씬 이름은 TH_Scenes - ⚠ Unity 씬 파일 이름과 같아야 함
+        var server = s.UnityServer(startScene: Scenes.ServerBoot);
+        var editor = s.UnityEditor(bootScene: Scenes.HarnessBoot); // 씬 이름은 HarnessConstants.Scenes - ⚠ Unity 씬 파일 이름과 같아야 함
 
         s.Context("다중 클라 회귀 확인 - 로그인/로비/매칭/인게임 서버 방 관리 코드를 고친 뒤, 클라 여럿이 동시에 있어도 각자 정상인지 본다.");
         s.Context("기본: ServersUp → AccountReady 셋 → UnityPlay@client1+client2 → Login 셋 → EnterGame@client1+client2 → " +

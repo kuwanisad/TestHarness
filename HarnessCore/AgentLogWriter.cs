@@ -6,14 +6,13 @@ namespace TestHarness.Core;
 
 /// <summary>
 /// 대상이 보낸 로그(AgentLog - 자기 로그 파일이 없는 Unity)를 지금 실행의 logs/&lt;에이전트 이름&gt;.log에 쓴다.
-/// 형식은 .NET 서버 로그(DevTools가 받은 JSON 콘솔 출력)와 같다 - {"Timestamp","LogLevel","Category","Message","Exception"} +
-/// "Pid"(같은 프로세스의 두 에이전트가 같은 줄을 보냈는지 알아보는 데 씀). 그래서 LogStore(logs_query), RunTrace(보고서)가
-/// 서버 로그와 같은 경로로 읽는다.
+/// 형식은 .NET 서버 로그(DevTools가 받은 JSON 콘솔 출력)와 같다 - HarnessConstants.LogFields(Timestamp, LogLevel, Category, Message,
+/// Exception) + Pid, Agent. 그래서 LogStore(logs_query), RunTrace(보고서)가 서버 로그와 같은 경로로 읽는다.
 ///
 /// - 열린 실행이 없으면 버린다(서버 로그도 실행 폴더에만 남는 것과 같다).
 /// - 줄마다 열고 닫는다(HarnessFiles.AppendLine).
-/// - 메인 에디터는 Play 중에 UnityEditor와 client가 같은 로그를 각자 보낸다 - 일부러 둘 다 남긴다(에이전트마다 자기 로그가
-///   온전해야 해서). 같은 줄 합치기는 읽는 쪽(RunTrace)이 Pid로 한다.
+/// - 한 프로세스의 로그는 한 에이전트만 보낸다 - 메인 에디터가 Play 중이고 게임 에이전트가 붙어 있으면 에디터 브리지는 보내지 않는다
+///   (Unity HarnessEditorBridge.UpdateLogForwarding).
 /// </summary>
 public sealed class AgentLogWriter
 {
@@ -58,7 +57,7 @@ public sealed class AgentLogWriter
     {
         var run = _runs.Current;
         if (run == null) return;
-        var line = Serialize(new AgentLogRecord("harness", 0, DateTimeOffset.UtcNow, "Information", HarnessConstants.NodeMarker.Category, message, ""));
+        var line = Serialize(new AgentLogRecord(HarnessConstants.NodeMarker.Category, 0, DateTimeOffset.UtcNow, HarnessConstants.LogLevels.Information, HarnessConstants.NodeMarker.Category, message, ""));
         lock (_lock)
         {
             if (_runId != run.Id) return;
@@ -71,7 +70,7 @@ public sealed class AgentLogWriter
     {
         var invalid = Path.GetInvalidFileNameChars();
         var safe = new string(agentName.Select(c => c == '.' || invalid.Contains(c) ? '_' : c).ToArray());
-        return (safe.Length == 0 ? "agent" : safe) + ".log";
+        return (safe.Length == 0 ? HarnessConstants.RunFiles.FallbackLogName : safe) + HarnessConstants.RunFiles.LogExtension;
     }
 
     private static string Serialize(AgentLogRecord r)
@@ -80,13 +79,13 @@ public sealed class AgentLogWriter
         using (var json = new Utf8JsonWriter(buffer, WriterOptions))
         {
             json.WriteStartObject();
-            json.WriteString("Timestamp", r.TimestampUtc.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
-            json.WriteString("LogLevel", r.Level);
-            json.WriteString("Category", string.IsNullOrEmpty(r.Category) ? "Unity" : r.Category);
-            json.WriteString("Message", r.Message ?? "");
-            if (!string.IsNullOrEmpty(r.Exception)) json.WriteString("Exception", r.Exception);
-            json.WriteNumber("Pid", r.Pid);
-            json.WriteString("Agent", r.AgentName);
+            json.WriteString(HarnessConstants.LogFields.Timestamp, r.TimestampUtc.UtcDateTime.ToString(HarnessConstants.LogFields.TimestampFormat));
+            json.WriteString(HarnessConstants.LogFields.LogLevel, r.Level);
+            json.WriteString(HarnessConstants.LogFields.Category, string.IsNullOrEmpty(r.Category) ? HarnessConstants.LogFields.DefaultUnityCategory : r.Category);
+            json.WriteString(HarnessConstants.LogFields.Message, r.Message ?? "");
+            if (!string.IsNullOrEmpty(r.Exception)) json.WriteString(HarnessConstants.LogFields.Exception, r.Exception);
+            json.WriteNumber(HarnessConstants.LogFields.Pid, r.Pid);
+            json.WriteString(HarnessConstants.LogFields.Agent, r.AgentName);
             json.WriteEndObject();
         }
 

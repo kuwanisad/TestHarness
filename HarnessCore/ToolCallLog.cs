@@ -15,11 +15,11 @@ public sealed record ToolCallRecord(
     bool IsError,
     double Seconds,
     string? Objective,
-    string Actor = ToolCallLog.ActorAi)
+    string Actor = HarnessConstants.Actors.Ai)
 {
     /// <summary>agent_command였다면 그 명령 이름(arguments.command).</summary>
     public string? AgentCommand =>
-        Tool == "agent_command" && Arguments is { ValueKind: JsonValueKind.Object } a &&
+        Tool == HarnessConstants.Tools.AgentCommand && Arguments is { ValueKind: JsonValueKind.Object } a &&
         a.TryGetProperty("command", out var c) && c.ValueKind == JsonValueKind.String
             ? c.GetString()
             : null;
@@ -37,16 +37,6 @@ public sealed record ToolCallRecord(
 /// </summary>
 public sealed class ToolCallLog
 {
-    public const string Source = "ai";
-    public const string RunnerSource = "runner";
-    public const string EventName = "mcp.call";
-    public const string ActorAi = "ai";
-    public const string ActorRunner = "runner";
-
-    /// <summary>파일 한 줄에 남기는 응답의 최대 길이(자).</summary>
-    private const int MaxResultChars = 20_000;
-    private const int MaxInMemory = 20_000;
-
     private readonly Timeline _timeline;
     private readonly RunManager _runs;
     private readonly HarnessPaths _paths;
@@ -67,12 +57,12 @@ public sealed class ToolCallLog
     public string? CaptureObjective() => CurrentObjective?.Invoke();
 
     public ToolCallRecord Record(string tool, JsonElement? arguments, string resultText, bool isError, TimeSpan elapsed, string? objective,
-        string actor = ActorAi)
+        string actor = HarnessConstants.Actors.Ai)
     {
         var result = HarnessJson.TryParse(resultText);
         var preview = HarnessJson.Truncate(resultText, 300);
-        var source = actor == ActorRunner ? RunnerSource : Source;
-        var evt = _timeline.Record(DateTimeOffset.UtcNow, source, EventName, null, $"{tool}{(isError ? " (error)" : "")}",
+        var source = actor == HarnessConstants.Actors.Runner ? HarnessConstants.Sources.Runner : HarnessConstants.Sources.Ai;
+        var evt = _timeline.Record(DateTimeOffset.UtcNow, source, HarnessConstants.HarnessEvents.McpCall, null, $"{tool}{(isError ? " (error)" : "")}",
             HarnessJson.ToElement(new
             {
                 tool,
@@ -92,7 +82,7 @@ public sealed class ToolCallLog
         lock (_lock)
         {
             _records.Add(record);
-            if (_records.Count > MaxInMemory) _records.RemoveRange(0, _records.Count - MaxInMemory);
+            if (_records.Count > HarnessConstants.Limits.ToolCallsInMemory) _records.RemoveRange(0, _records.Count - HarnessConstants.Limits.ToolCallsInMemory);
             WriteLine(record, resultText);
         }
 
@@ -112,8 +102,8 @@ public sealed class ToolCallLog
     private void WriteLine(ToolCallRecord record, string resultText)
     {
         var file = _runs.Current is { } run
-            ? Path.Combine(run.Dir, "mcp-calls.jsonl")
-            : Path.Combine(_paths.RunsDir, "mcp-calls-outside-run.jsonl");
+            ? Path.Combine(run.Dir, HarnessConstants.RunFiles.McpCalls)
+            : Path.Combine(_paths.RunsDir, HarnessConstants.RunFiles.McpCallsOutsideRun);
 
         var line = HarnessJson.Serialize(new
         {
@@ -125,7 +115,7 @@ public sealed class ToolCallLog
             seconds = record.Seconds,
             objective = record.Objective,
             actor = record.Actor,
-            result = record.Result is { } parsed && resultText.Length <= MaxResultChars ? (object)parsed : HarnessJson.Truncate(resultText, MaxResultChars),
+            result = record.Result is { } parsed && resultText.Length <= HarnessConstants.Limits.ToolResultMaxChars ? (object)parsed : HarnessJson.Truncate(resultText, HarnessConstants.Limits.ToolResultMaxChars),
         });
 
         try
@@ -139,7 +129,7 @@ public sealed class ToolCallLog
     }
 
     private static string? CommandOf(string tool, JsonElement? arguments) =>
-        tool == "agent_command" && arguments is { ValueKind: JsonValueKind.Object } a &&
+        tool == HarnessConstants.Tools.AgentCommand && arguments is { ValueKind: JsonValueKind.Object } a &&
         a.TryGetProperty("command", out var c) && c.ValueKind == JsonValueKind.String
             ? c.GetString()
             : null;

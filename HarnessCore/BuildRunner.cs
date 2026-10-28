@@ -29,17 +29,8 @@ public sealed record BuildReport(
 /// </summary>
 public sealed class BuildRunner
 {
-    public const int MaxErrors = 30;
 
     private static readonly Regex DiagnosticLine = new(@":\s(?<kind>error|warning)\s[A-Z]+\d+:", RegexOptions.Compiled);
-
-    // 컴파일러/MSBuild 메시지를 영어로 - 한국어 SDK면 메시지가 콘솔 코드 페이지로 나와 섞이고, 오류 줄 형식도
-    // 영어 기준으로 거르기 때문.
-    private static readonly IReadOnlyDictionary<string, string> BuildEnvironment = new Dictionary<string, string>
-    {
-        ["DOTNET_CLI_UI_LANGUAGE"] = "en",
-        ["DOTNET_NOLOGO"] = "1",
-    };
 
     private readonly HarnessPaths _paths;
     private readonly RunManager _runs;
@@ -55,7 +46,7 @@ public sealed class BuildRunner
     }
 
     /// <summary>빌드할 수 있는 이름: 서버 이름들 + BrokerInitializer.</summary>
-    public IReadOnlyList<string> Targets => _servers.ServerOrder.Append("BrokerInitializer").ToList();
+    public IReadOnlyList<string> Targets => _servers.ServerOrder.Append(HarnessConstants.ServerBuild.BrokerInitializer).ToList();
 
     /// <summary>names가 비면 서버 전부 + BrokerInitializer.</summary>
     public async Task<BuildReport> BuildAsync(IReadOnlyList<string>? names, CancellationToken ct)
@@ -77,11 +68,12 @@ public sealed class BuildRunner
 
         foreach (var (name, projectPath) in targets)
         {
-            var outputPath = run.NewFile("build", $"{name}.txt");
+            var outputPath = run.NewFile(HarnessConstants.ServerBuild.BuildOutputDir, $"{name}.txt");
             outputDir ??= Path.GetDirectoryName(outputPath);
-            var result = await ProcessRunner.RunAsync("dotnet",
-                new[] { "build", projectPath, "-c", "Debug", "-nologo", "-v", "q", "-clp:NoSummary" },
-                Path.GetDirectoryName(projectPath)!, TimeSpan.FromMinutes(5), outputPath, BuildEnvironment, ct);
+            var result = await ProcessRunner.RunAsync(HarnessConstants.ServerBuild.BuildCommand,
+                HarnessConstants.ServerBuild.BuildArguments.Select(a => string.Format(a, projectPath)).ToArray(),
+                Path.GetDirectoryName(projectPath)!, TimeSpan.FromMinutes(HarnessConstants.Limits.BuildTimeoutMinutes), outputPath,
+                HarnessConstants.ServerBuild.BuildEnvironment, ct);
 
             var projectErrors = 0;
             var projectWarnings = 0;
@@ -115,9 +107,9 @@ public sealed class BuildRunner
         }
 
         var ok = projectResults.All(p => p.Ok);
-        var report = new BuildReport(ok, projectResults, errors.Take(MaxErrors).ToList(),
-            Math.Max(0, errors.Count - MaxErrors), warningCount, _paths.Relative(outputDir ?? run.Dir));
-        _timeline.RecordHarness(ok ? "build.succeeded" : "build.failed",
+        var report = new BuildReport(ok, projectResults, errors.Take(HarnessConstants.Limits.BuildMaxErrors).ToList(),
+            Math.Max(0, errors.Count - HarnessConstants.Limits.BuildMaxErrors), warningCount, _paths.Relative(outputDir ?? run.Dir));
+        _timeline.RecordHarness(ok ? HarnessConstants.HarnessEvents.BuildSucceeded : HarnessConstants.HarnessEvents.BuildFailed,
             $"빌드 {(ok ? "성공" : "실패")}: {string.Join(", ", projectResults.Select(p => $"{p.Project}={(p.Ok ? "ok" : "FAILED")}"))}",
             new { errors = errors.Count, warnings = warningCount });
         return report;
@@ -134,9 +126,9 @@ public sealed class BuildRunner
                 .ToList()
             : all.ToList();
 
-        var targets = selected.Select(name => (name, name == "BrokerInitializer"
-                ? Path.Combine(_paths.DevTools, "BrokerInitializer", "BrokerInitializer.csproj")
-                : Path.Combine(_paths.GameServer, name, $"{name}.csproj")))
+        var targets = selected.Select(name => (name, name == HarnessConstants.ServerBuild.BrokerInitializer
+                ? Path.Combine(_paths.DevTools, name, name + HarnessConstants.ServerBuild.ProjectExtension)
+                : Path.Combine(_paths.GameServer, name, name + HarnessConstants.ServerBuild.ProjectExtension)))
             .ToList();
 
         if (selected.Any(name => name != "BrokerInitializer")) targets.AddRange(HarnessProjects());

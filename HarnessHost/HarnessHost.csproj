@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\HarnessShared\HarnessShared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- 테스트 대상들이 접속해 오는 gRPC 서버를 띄우므로 ASP.NET Core가 필요하다. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
@@ -36,6 +40,13 @@
   <Target Name="CopyHarnessProtoToServer" AfterTargets="Build" Condition="Exists('$(ServerSharedDir)')">
     <Copy SourceFiles="$(MSBuildThisFileDirectory)..\Protos\harness.proto"
           DestinationFolder="$(HarnessProtoCopyDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- 에이전트와 같아야 하는 상수 파일도 같은 길로(원본 HarnessShared/HarnessSharedConstants.cs → Server Harness.Contracts/Shared/ → Unity). -->
+  <Target Name="CopyHarnessSharedConstantsToServer" AfterTargets="Build" Condition="Exists('$(ServerSharedDir)')">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\HarnessShared\HarnessSharedConstants.cs"
+          DestinationFolder="$(ServerSharedDir)\Test\Harness.Contracts\Shared"
           SkipUnchangedFiles="true" />
   </Target>
 

@@ -11,7 +11,7 @@ public sealed class ServerTools
 
     public ServerTools(HarnessSession session) => _session = session;
 
-    [McpTool("infra_status")]
+    [McpTool(HarnessConstants.Tools.InfraStatus)]
     [Description("인프라(Redis 6379, RabbitMQ 5672, Kafka 9092)가 떠 있는지 포트로 확인한다. 꺼져 있으면 servers_start(infra=Start)가 docker compose로 올린다.")]
     public async Task<object> InfraStatus(CancellationToken ct)
     {
@@ -23,7 +23,7 @@ public sealed class ServerTools
         };
     }
 
-    [McpTool("server_build")]
+    [McpTool(HarnessConstants.Tools.ServerBuild)]
     [Description("서버 코드를 빌드한다(dotnet build, Debug). 서버 코드를 고친 뒤 servers_start 전에 부를 것. 결과: 프로젝트별 성공 여부와 " +
                  "중복을 뺀 오류 줄(최대 30개), 전체 출력 파일 경로. 서버를 하나라도 빌드하면 하네스 에이전트 쪽(Harness.Agent, <서버>.Harness)도 " +
                  "이어서 빌드한다. 서버가 떠 있으면 거부(실행 중인 DLL은 덮어쓸 수 없다).")]
@@ -36,7 +36,7 @@ public sealed class ServerTools
         return new { sinceSeq, report };
     }
 
-    [McpTool("servers_start")]
+    [McpTool(HarnessConstants.Tools.ServersStart)]
     [Description("DevTools/start-servers.ps1(하네스 모드)로 서버를 띄운다 - 사람이 띄우는 것과 같은 방식. 순서는 항상 Master → Matching → " +
                  "Account → Login → DummySub → Lobby → GameAgent → Chat. 각 서버가 준비('Application started')되고 하네스 에이전트로 붙을 때까지 " +
                  "기다린다. 결과: 단계별 status(ready/failed/skipped)와 agentAttached, 실패한 단계는 logTail(로그 끝 + err 로그 앞). " +
@@ -52,7 +52,7 @@ public sealed class ServerTools
         return new { sinceSeq, runId = _session.Runs.Current?.Id, report };
     }
 
-    [McpTool("server_control")]
+    [McpTool(HarnessConstants.Tools.ServerControl)]
     [Description("DevTools/control-server.ps1로 서버 하나를 kill / start / restart 한다(장애 주입, 재시작 후 복구 확인). " +
                  "kill이면 그 서버 에이전트의 harness.detached 이벤트가 타임라인에 찍힌다.")]
     public async Task<object> ServerControl(
@@ -66,7 +66,7 @@ public sealed class ServerTools
         return new { sinceSeq, report };
     }
 
-    [McpTool("servers_stop")]
+    [McpTool(HarnessConstants.Tools.ServersStop)]
     [Description("DevTools/stop-servers.ps1로 지금 실행의 서버를 전부 끈다(역순, 강제 종료). runId를 주면 그 실행에 남은 서버를 끈다" +
                  "(harness_status의 orphans 정리). 기본은 Docker 컨테이너도 내린다(docker-compose down - 컨테이너 제거, 결과 steps에 Docker=removed). " +
                  "서버만 껐다 켤 때는 stopInfra=false.")]

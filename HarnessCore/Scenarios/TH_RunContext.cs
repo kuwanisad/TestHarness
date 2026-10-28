@@ -147,7 +147,7 @@ public sealed class TH_RunContext
 
     /// <summary>에이전트 명령(agent_command). 명령이 실패(ok=false)하거나 도구 오류면 노드를 실패로 끝낸다.</summary>
     /// <returns>명령 직전 이벤트 번호(sinceSeq)와 명령 결과 값(value).</returns>
-    public async Task<(long SinceSeq, JsonElement? Value)> Agent(string agent, string command, object? args = null, int timeoutSeconds = 15)
+    public async Task<(long SinceSeq, JsonElement? Value)> Agent(string agent, string command, object? args = null, int timeoutSeconds = HarnessConstants.Limits.AgentCommandTimeoutSeconds)
     {
         var (sinceSeq, ok, value, error) = await TryAgent(agent, command, args, timeoutSeconds);
         if (!ok) throw Fail($"{agent}의 {command} 실패: {error}");
@@ -155,11 +155,11 @@ public sealed class TH_RunContext
     }
 
     /// <summary>그 대상(에이전트)에 보내는 에이전트 명령 - <see cref="Agent(string, string, object?, int)"/>와 같다.</summary>
-    public Task<(long SinceSeq, JsonElement? Value)> Agent(TH_Target target, string command, object? args = null, int timeoutSeconds = 15) =>
+    public Task<(long SinceSeq, JsonElement? Value)> Agent(TH_Target target, string command, object? args = null, int timeoutSeconds = HarnessConstants.Limits.AgentCommandTimeoutSeconds) =>
         Agent(target.Name, command, args, timeoutSeconds);
 
     public Task<(long SinceSeq, bool Ok, JsonElement? Value, string? Error)> TryAgent(TH_Target target, string command, object? args = null,
-        int timeoutSeconds = 15) => TryAgent(target.Name, command, args, timeoutSeconds);
+        int timeoutSeconds = HarnessConstants.Limits.AgentCommandTimeoutSeconds) => TryAgent(target.Name, command, args, timeoutSeconds);
 
     /// <summary>그 대상의 이벤트를 기다린다(출처 = 대상 이름).</summary>
     public Task<JsonElement?> WaitFor(TH_Target target, string[] names, long? sinceSeq, int timeoutSeconds, string? contains = null) =>
@@ -169,13 +169,13 @@ public sealed class TH_RunContext
         Expect(target.Name, names, sinceSeq, timeoutSeconds, contains);
 
     public Task<JsonElement?> PollAgent(TH_Target target, string command, Func<JsonElement, bool> until, int timeoutSeconds,
-        int intervalMilliseconds = 1000) => PollAgent(target.Name, command, until, timeoutSeconds, intervalMilliseconds);
+        object? args = null, int intervalMilliseconds = HarnessConstants.Limits.PollIntervalMilliseconds) => PollAgent(target.Name, command, until, timeoutSeconds, args, intervalMilliseconds);
 
     /// <summary>에이전트 명령 - 실패해도 던지지 않는다(정리 노드처럼 "되면 좋고"인 경우).</summary>
     public async Task<(long SinceSeq, bool Ok, JsonElement? Value, string? Error)> TryAgent(string agent, string command, object? args = null,
-        int timeoutSeconds = 15)
+        int timeoutSeconds = HarnessConstants.Limits.AgentCommandTimeoutSeconds)
     {
-        var result = await Call("agent_command", new { agent, command, args, timeoutSeconds });
+        var result = await Call(HarnessConstants.Tools.AgentCommand, new { agent, command, args, timeoutSeconds });
         if (result.IsError) return (LastSeq, false, null, result.ErrorText);
 
         var sinceSeq = (long)(result.Value.Num("sinceSeq") ?? LastSeq);
@@ -193,15 +193,14 @@ public sealed class TH_RunContext
         var remaining = Math.Max(1, timeoutSeconds);
         while (remaining > 0)
         {
-            var chunk = Math.Min(remaining, MaxWaitChunkSeconds);
-            var result = await CallOk("wait_for", new { source, names, sinceSeq = since, timeoutSeconds = chunk, contains });
+            var chunk = Math.Min(remaining, HarnessConstants.Limits.MaxWaitSeconds);
+            var result = await CallOk(HarnessConstants.Tools.WaitFor, new { source, names, sinceSeq = since, timeoutSeconds = chunk, contains });
             if (result.Bool("matched")) return result.Get("event");
             remaining -= chunk;
         }
         return null;
     }
 
-    private const int MaxWaitChunkSeconds = 300;
 
     /// <summary>이벤트를 기다리고, 안 오면 노드를 실패로 끝낸다.</summary>
     public async Task<JsonElement> Expect(string? source, string[] names, long? sinceSeq, int timeoutSeconds, string? contains = null)
@@ -215,13 +214,13 @@ public sealed class TH_RunContext
     /// 맞으면 바로 멈춘다. 끝내 안 맞아도 던지지 않는다 - 판정 코드가 마지막 값으로 실패 이유를 쓴다.
     /// </summary>
     public async Task<JsonElement?> PollAgent(string agent, string command, Func<JsonElement, bool> until, int timeoutSeconds,
-        int intervalMilliseconds = 1000)
+        object? args = null, int intervalMilliseconds = HarnessConstants.Limits.PollIntervalMilliseconds)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(timeoutSeconds);
         JsonElement? last = null;
         while (true)
         {
-            var (_, ok, value, _) = await TryAgent(agent, command);
+            var (_, ok, value, _) = await TryAgent(agent, command, args);
             if (ok && value is { } v)
             {
                 last = v;

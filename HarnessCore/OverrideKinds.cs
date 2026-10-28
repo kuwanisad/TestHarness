@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using TestHarness.Core.Scenarios;
 
@@ -61,120 +60,34 @@ public readonly record struct OverrideProbeResult(bool Gone, string? Value)
 }
 
 /// <summary>
-/// 지속 조작 종류 목록 - 원본은 여기 한 곳(명령 영역 CommandAreas, 환경 변화 TH_EnvironmentChanges와 같은 방식). 새 지속 조작 명령이
-/// 생기면 여기에 넣는다. 테스트 조작이라 환경 변화(테스트 대상의 변화)가 아니다.
+/// 지속 조작 종류 목록. 종류(어느 명령이 걸기인지, 값을 어떻게 읽는지)는 그 게임/에이전트의 지식이라 시나리오 어셈블리가 등록한다
+/// (ITH_GameKnowledge - HarnessScenarios/Knowledge). HarnessCore는 기록, 수명, 표시(OverrideManager)만 맡는다. 테스트 조작이라 환경 변화
+/// (테스트 대상의 변화)가 아니다.
 /// </summary>
 public static class OverrideKinds
 {
-    // 종류 이름 - 노드의 Forbids/Needs 선언에 쓴다(문자열을 흩어 쓰지 않게).
-    public const string TimeScale = "time_scale";
-    public const string PlanningSetting = "planning_setting";
-    public const string Fault = "fault";
-    public const string PlayStart = "play_start";
-    public const string NetCondition = "net_condition";
-    public const string NetLink = "net_link";
+    private static readonly object Lock = new();
+    private static IReadOnlyList<OverrideKind> _all = Array.Empty<OverrideKind>();
 
-    public static readonly IReadOnlyList<OverrideKind> All = new[]
+    public static IReadOnlyList<OverrideKind> All
     {
-        new OverrideKind(
-            TimeScale, "cheat.time_scale", "인게임 서버 프로세스 배속",
-            Matches: _ => true,
-            Scope: _ => "",
-            Before: v => Number(v, "previous"),
-            After: v => Number(v, "current"),
-            RevertArgs: (_, before) => new { scale = double.Parse(before, CultureInfo.InvariantCulture) },
-            Probe: new OverrideProbe("process.status", (v, _) => OverrideProbeResult.Of(Number(v, "timeScale")))), // 프로세스가 사라지면 agent_gone
+        get { lock (Lock) return _all; }
+    }
 
-        new OverrideKind(
-            PlanningSetting, "cheat.planning_duration", "그 방의 재정비 시간 설정값",
-            Matches: a => a.Str("mode") is "SettingOnly" or "Rescale", // CurrentOnly는 이번 재정비만 - 설정값은 그대로
-            Scope: v => v.Str("roomId") ?? "",
-            Before: v => Number(v, "settingBefore"),
-            After: v => Number(v, "settingAfter"),
-            RevertArgs: (scope, before) => new { mode = "SettingOnly", seconds = double.Parse(before, CultureInfo.InvariantCulture), roomId = scope },
-            ScopeEnded: e => e.Name == "room.closed" ? e.Data?.Str("roomId") : null,
-            Probe: new OverrideProbe("ingame.rooms", (v, scope) =>
-                v.Items("rooms").FirstOrDefault(room => room.Str("roomId") == scope) is { ValueKind: JsonValueKind.Object } room
-                    ? OverrideProbeResult.Of(Number(room, "planningDuration"))
-                    : OverrideProbeResult.GoneResult)),
-
-        // 경계 장애 규칙(서버 Harness.Agent의 fault.*) - 규칙 하나가 범위 하나(ruleId). 횟수/시간이 다 되면 서버가 fault.ended를 낸다.
-        new OverrideKind(
-            Fault, "fault.add", "경계 장애 규칙(gRPC 메시지 고치기/버리기/늦추기/실패)",
-            Matches: _ => true,
-            Scope: v => v.Str("ruleId") ?? "",
-            Before: _ => "off",
-            After: v => $"{v.Str("action")} {v.Str("dir")} {v.Str("method")}",
-            RevertArgs: (scope, _) => new { ruleId = scope },
-            ScopeEnded: e => e.Name == "fault.ended" ? e.Data?.Str("ruleId") : null,
-            RevertCommand: "fault.remove",
-            EndedByCall: (command, args) => command == "fault.remove" ? args.Str("ruleId") : null,
-            HitEvent: e => e.Name == "fault.hit" ? e.Data?.Str("ruleId") : null,
-            Probe: new OverrideProbe("fault.list", (v, scope) =>
-                v.Items("rules").FirstOrDefault(rule => rule.Str("ruleId") == scope) is { ValueKind: JsonValueKind.Object } rule
-                    ? OverrideProbeResult.Of($"{rule.Str("action")} {rule.Str("dir")} {rule.Str("method")}")
-                    : OverrideProbeResult.GoneResult)),
-
-        // NGO 연결 조건(Unity 에이전트의 net.condition - Multiplayer Tools Network Simulator, 그 플레이어 프로세스 전체). Play가 끝나면 사라짐.
-        new OverrideKind(
-            NetCondition, "net.condition", "그 플레이어의 NGO 연결 조건(지연/흔들림/손실)",
-            Matches: _ => true,
-            Scope: _ => "",
-            Before: v => NetConditionText(v.Get("previous")),
-            After: v => NetConditionText(v.Get("current")),
-            RevertArgs: (_, before) => NetConditionArgs(before),
-            Probe: new OverrideProbe("net.state", (v, _) => OverrideProbeResult.Of(NetConditionText(v.Get("condition"))))),
-
-        // NGO 연결 끊기(net.link connected=false - 송수신 손실 100%). 되돌리기는 다시 잇기. Play가 끝나면 사라짐.
-        new OverrideKind(
-            NetLink, "net.link", "그 플레이어의 NGO 연결 끊김",
-            Matches: _ => true,
-            Scope: _ => "",
-            Before: v => v.Get("previous") is { } p ? (p.ValueKind == JsonValueKind.True ? "connected" : "disconnected") : null,
-            After: v => v.Get("current") is { } c ? (c.ValueKind == JsonValueKind.True ? "connected" : "disconnected") : null,
-            RevertArgs: (_, before) => new { connected = before == "connected" },
-            Probe: new OverrideProbe("net.state", (v, _) => OverrideProbeResult.Of(v.Bool("connected") ? "connected" : "disconnected")),
-            ValueEvent: e => e.Name == "net.link_changed" && e.Data is { } d
-                ? (d.Bool("connected") ? "connected" : "disconnected", d.Str("cause") ?? "")
-                : null),
-
-        // Play 시작 씬(에디터 브리지 editor.set_play_start - 시나리오 시작 때 TH_UnityEditor 준비가 출발 씬 HarnessBoot로). 모든 에디터(메인 +
-        // MPPM 가상 플레이어)가 공유 파일로 맞춘다. 에디터 설정이라 Play 진입 도메인 리로드로 브리지가 잠깐 끊겨도 남는다(EndsWithAgent=false).
-        new OverrideKind(
-            PlayStart, "editor.set_play_start", "Play 시작 씬(모든 에디터)",
-            Matches: _ => true,
-            Scope: _ => "",
-            Before: v => v.Get("previous") is { ValueKind: JsonValueKind.String } previous ? previous.GetString() : "(없음)", // JSON null = 정한 적 없음
-            After: v => v.Str("playStart"),
-            RevertArgs: (_, _) => new { },
-            RevertCommand: "editor.clear_play_start",
-            EndedByCall: (command, _) => command == "editor.clear_play_start" ? "" : null,
-            Probe: new OverrideProbe("editor.status", (v, _) => OverrideProbeResult.Of(v.Str("playStartScene") ?? "(없음)")),
-            EndsWithAgent: false),
-    };
+    /// <summary>종류를 등록한다(하네스 시작 때 - 시나리오 카탈로그 등록 중). 같은 이름을 두 번 등록하면 오류.</summary>
+    public static void Register(OverrideKind kind)
+    {
+        lock (Lock)
+        {
+            if (_all.Any(k => string.Equals(k.Name, kind.Name, StringComparison.Ordinal)))
+                throw new InvalidOperationException($"지속 조작 종류 이름 중복: {kind.Name}");
+            _all = _all.Append(kind).ToArray();
+        }
+    }
 
     /// <summary>이름으로 종류 찾기(노드의 Forbids/Needs 선언 검사).</summary>
     public static OverrideKind? ByName(string name) => All.FirstOrDefault(k => string.Equals(k.Name, name, StringComparison.Ordinal));
 
     public static OverrideKind? Find(string command, JsonElement args) =>
         All.FirstOrDefault(k => k.Command == command && k.Matches(args));
-
-    /// <summary>net.condition 값({delayMs, jitterMs, lossPercent, lossInterval}) → "지연 200ms ±50 손실 5% 간격 0"(되돌리기 인자로 다시 읽는다).</summary>
-    private static string? NetConditionText(JsonElement? c) =>
-        c is { ValueKind: JsonValueKind.Object } v
-            ? $"지연 {Int(v, "delayMs")}ms ±{Int(v, "jitterMs")} 손실 {Int(v, "lossPercent")}% 간격 {Int(v, "lossInterval")}"
-            : null;
-
-    private static object NetConditionArgs(string text)
-    {
-        var n = System.Text.RegularExpressions.Regex.Matches(text, @"\d+").Select(m => int.Parse(m.Value, CultureInfo.InvariantCulture)).ToArray();
-        return n.Length == 4
-            ? new { delayMs = n[0], jitterMs = n[1], lossPercent = n[2], lossInterval = n[3] }
-            : new { delayMs = 0, jitterMs = 0, lossPercent = 0, lossInterval = 0 };
-    }
-
-    private static int Int(JsonElement v, string path) => v.Num(path) is { } n ? (int)n : 0;
-
-    private static string? Number(JsonElement v, string path) =>
-        v.Num(path) is { } n ? n.ToString("0.###", CultureInfo.InvariantCulture) : null;
 }

@@ -15,7 +15,7 @@ public sealed record EventView(long Seq, string T, string Source, string Name, s
         e.Source,
         e.Name,
         e.PlayerId,
-        string.IsNullOrEmpty(e.Detail) ? null : HarnessJson.Truncate(e.Detail, 300),
+        string.IsNullOrEmpty(e.Detail) ? null : HarnessJson.Truncate(e.Detail, HarnessConstants.Limits.EventDetailMaxLength),
         e.Data);
 
     public static string Time(DateTimeOffset t) => t.UtcDateTime.ToString("HH:mm:ss.fff");

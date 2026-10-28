@@ -24,8 +24,8 @@ public sealed class HarnessRun
     public DateTimeOffset StartedUtc { get; }
 
     /// <summary>DevTools -LogDir로 넘기는 폴더(서버 로그 + server-pids.json + *-result.json).</summary>
-    public string LogsDir => Path.Combine(Dir, "logs");
-    public string EventsFile => Path.Combine(Dir, "events.jsonl");
+    public string LogsDir => Path.Combine(Dir, HarnessConstants.RunFiles.LogsDir);
+    public string EventsFile => Path.Combine(Dir, HarnessConstants.RunFiles.Events);
 
     /// <summary>run 폴더 아래 하위 폴더를 만들고 그 안의 새 파일 경로를 준다(번호를 붙여 덮어쓰지 않음).</summary>
     public string NewFile(string subDir, string name)
@@ -69,12 +69,12 @@ public sealed class RunManager
         lock (_lock) _current = run;
 
         _timeline.SetEventsFile(run.EventsFile);
-        _timeline.RecordHarness("run.begin", $"실행 시작: {run.Id}", new { runId = run.Id, dir = run.Dir });
+        _timeline.RecordHarness(HarnessConstants.HarnessEvents.RunBegin, $"실행 시작: {run.Id}", new { runId = run.Id, dir = run.Dir });
         return run;
     }
 
     /// <summary>열린 실행이 없으면 자동으로 하나 연다 - run_begin을 깜빡해도 기록이 흩어지지 않게.</summary>
-    public HarnessRun EnsureCurrent() => Current ?? Begin("auto");
+    public HarnessRun EnsureCurrent() => Current ?? Begin(HarnessConstants.Defaults.AutoRunLabel);
 
     public void End()
     {
@@ -86,7 +86,7 @@ public sealed class RunManager
         }
 
         if (run == null) return;
-        _timeline.RecordHarness("run.end", $"실행 종료: {run.Id}", new { runId = run.Id });
+        _timeline.RecordHarness(HarnessConstants.HarnessEvents.RunEnd, $"실행 종료: {run.Id}", new { runId = run.Id });
         _timeline.SetEventsFile(null);
     }
 

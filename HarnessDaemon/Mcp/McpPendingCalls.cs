@@ -33,17 +33,15 @@ public sealed class PendingCall
 /// 응답한다. 모든 도구가 같은 경로다(McpServer.CallToolAsync) - 도구를 만들 때 따로 할 일은 없다.
 ///
 /// - pending 응답에는 시간 정보(경과/남은 시간)를 싣지 않는다 - AI가 시간을 계산하지 않고 그냥 이어서 기다리게.
-/// - 끝난 결과는 <see cref="KeepCompleted"/> 동안 보관하고, 받아 가지 않으면 버린다(원래 도구 기록은 mcp-calls.jsonl에 남아 있음).
+/// - 끝난 결과는 HarnessConstants.Limits.McpKeepCompletedMinutes분 동안 보관하고, 받아 가지 않으면 버린다(원래 도구 기록은 mcp-calls.jsonl에 남아 있음).
 /// </summary>
 public sealed class McpPendingCalls
 {
-    public static readonly TimeSpan DefaultResponseBudget = TimeSpan.FromSeconds(50);
-    public static readonly TimeSpan KeepCompleted = TimeSpan.FromMinutes(10);
 
     private readonly ConcurrentDictionary<string, PendingCall> _calls = new(StringComparer.Ordinal);
     private long _nextId;
 
-    public McpPendingCalls(TimeSpan? responseBudget = null) => ResponseBudget = responseBudget ?? DefaultResponseBudget;
+    public McpPendingCalls(TimeSpan? responseBudget = null) => ResponseBudget = responseBudget ?? TimeSpan.FromSeconds(HarnessConstants.Limits.McpResponseBudgetSeconds);
 
     /// <summary>pending 응답에 함께 실을 진행 상황(예: 실행 중인 시나리오 노드와 최근 이벤트). 없으면 null - 입구가 연결한다.</summary>
     public Func<object?>? Progress { get; set; }
@@ -85,7 +83,7 @@ public sealed class McpPendingCalls
         var now = DateTimeOffset.UtcNow;
         foreach (var (id, call) in _calls)
         {
-            if (call.CompletedAt is { } done && now - done > KeepCompleted) _calls.TryRemove(id, out _);
+            if (call.CompletedAt is { } done && now - done > TimeSpan.FromMinutes(HarnessConstants.Limits.McpKeepCompletedMinutes)) _calls.TryRemove(id, out _);
         }
     }
 }

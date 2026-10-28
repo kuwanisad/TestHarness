@@ -28,7 +28,7 @@ public static class InfraProbe
     {
         using var client = new TcpClient();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromMilliseconds(800));
+        timeout.CancelAfter(TimeSpan.FromMilliseconds(HarnessConstants.Limits.InfraProbeMilliseconds));
         try
         {
             await client.ConnectAsync("127.0.0.1", port, timeout.Token);

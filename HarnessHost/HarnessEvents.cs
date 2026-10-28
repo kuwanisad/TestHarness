@@ -2,7 +2,7 @@ namespace TestHarness.HarnessHost;
 
 /// <summary>
 /// 하네스가 받은 이벤트 하나. 테스트 대상이 올려 보낸 AgentEvent와, 하네스가 직접 남기는
-/// 접속/끊김 기록(<see cref="HarnessEventNames"/>)이 같은 줄에 섞인다.
+/// 접속/끊김 기록(HarnessSharedConstants.Events.Harness*)이 같은 줄에 섞인다.
 /// TimestampUtc는 대상 프로세스가 찍은 시각(하네스가 받은 시각이 아님) - 로그와 합쳐
 /// 타임라인을 만들 때의 정렬 기준.
 /// </summary>
@@ -35,19 +35,6 @@ public sealed record AgentLogRecord(
     string Category,
     string Message,
     string Exception);
-
-/// <summary>하네스가 스스로 기록하는 이벤트 이름.</summary>
-public static class HarnessEventNames
-{
-    /// <summary>테스트 대상이 접속해서 Hello가 받아들여짐. data: kind, pid, commands.</summary>
-    public const string Attached = "harness.attached";
-
-    /// <summary>테스트 대상과의 연결이 끊김(프로세스 종료 포함). data: reason.</summary>
-    public const string Detached = "harness.detached";
-
-    /// <summary>Hello가 거부됨(버전 불일치, 이름 중복 등). data: reason.</summary>
-    public const string Rejected = "harness.rejected";
-}
 
 /// <summary>
 /// 이벤트 기록 + 조건 대기. HeadlessClient의 ClientEventLog와 같은 방식 - 고정 시간 대기 대신

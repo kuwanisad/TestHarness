@@ -14,6 +14,8 @@
   오래 걸리면 pending이 온다 - `call_continue`로 기다린다(progress에 실행 중인 노드와 최근 이벤트).
 - 결과(visit)를 보고 다음 노드를 정한다. 맥락상 충분하면 `scenario_finish(reason)` - 특정 노드까지 가거나 그래프를 다 돌 필요는 없다.
   진행할 수 없을 때도 scenario_finish(이유에 적기). 정리 노드는 하네스가 돌린다.
+- 노드 실행 중(pending)에도 scenario_finish로 일찍 끝낼 수 있다(사람이 멈추라고 할 때 등): 실행 중인 노드는 멈추고(Stopped - 판정 안 함)
+  노드를 더 돌리지 않은 채 정리 노드 → 보고서로 간다. 이미 돈 노드의 결과는 그대로 보고서에 남는다. 이어서 진행하는 방법은 없다.
 - 시나리오가 끝나면 하네스가 그 실행(run)도 닫는다(서버/헤드리스 클라가 남았으면 열어 둠 - 응답 runClosed). 닫힌 뒤 그 실행의 로그는
   `logs_query(runId=<응답의 runId>)`로 본다.
 - 응답의 `environment.changes`가 오면 테스트 대상이 바뀐 것(서버 빌드·재기동, Unity 재컴파일, 계정 생성, 하네스 밖 빌드 등) -
@@ -67,7 +69,7 @@
 
 명령 영역(agent_list의 query 키워드 - 이 이름만 받는다):
 editor(에디터) · client(Unity 클라 로그인/매칭) · shop(매물대, UI 경로) · cheat(규칙을 건너뛰는 준비) · ingame(인게임 서버 방) ·
-log(콘솔 로그) · process(프로세스 정보/상태). 명령 이름과 인자는 `agent_list(query=<영역>)`으로 확인하고 쓴다.
+log(콘솔 로그) · process(프로세스 정보) · status(게임 상태 조회 - status.screen, status.replication 등). 명령 이름과 인자는 `agent_list(query=<영역>)`으로 확인하고 쓴다.
 
 흐름:
 1. Unity 코드를 고쳤으면 `agent_command(UnityEditor, editor.refresh)` → `wait_for(source=UnityEditor,
@@ -86,11 +88,12 @@ log(콘솔 로그) · process(프로세스 정보/상태). 명령 이름과 인�
    `phase.changed`, `room.*`(server), 게임이 끝나면 `client.lobby_state`(InLobby)로 본다.
 7. 끝나면 `editor.stop`. 다시 고칠 때는 stop → 코드 수정 → refresh → play.
 
-화면 확인: 클라의 `process.status`가 지금 화면 상태를 알려준다 - sceneRole(Login/Ingame/Other), stage(Login/Lobby/Ingame),
-localPawn(LoginPawn/LobbyPawn), uiManager(LoginUIManager/LobbyUIManager/AutoChessUIManager), autoChessView, pawnCounts.
-로그인 후 = stage Lobby/LobbyPawn/LobbyUIManager, 인게임 = sceneRole Ingame/AutoChessView/AutoChessUIManager(로비 Pawn 0개), 게임 후 =
+화면 확인: 클라의 `status.screen(types=<쉼표로 구분한 컴포넌트 타입 이름>)`이 지금 화면 상태를 알려준다 - stage(Login/Lobby/Ingame),
+sceneRole(Login/Ingame/Other), localPawn·uiManager 타입, counts(types마다 씬에 있는 개수). 예: types="AutoChessView,LobbyPawn".
+로그인 후 = stage Lobby/LobbyPawn/LobbyUIManager, 인게임 = sceneRole Ingame/AutoChessUIManager/AutoChessView 1개(LobbyPawn 0개), 게임 후 =
 sceneRole Login + LobbyPawn. 씬 전환은 비동기라 이벤트 직후엔 이전 상태일 수 있다 - 잠시 뒤 다시 본다. UIManager가 2개 이상이거나
-화면이 기대와 다르면 버그다(log.recent에 [UIManager] 오류가 남는다).
+화면이 기대와 다르면 버그다(log.recent에 [UIManager] 오류가 남는다). 레플리케이션은 `status.replication`(클라 received, 서버 expected/observed).
+`process.status`는 프로세스 정보만 준다. 없는 `status.*`를 부르면 "구현부가 없음"이 온다 - 테스트 전에 Unity 쪽에 만들어야 한다.
 
 주의: Unity 명령의 ok는 "요청을 보냈다"까지만이다. 결과는 반드시 이벤트로 확인한다. 노멀 모드는 사람 1 + 봇 7이라
 클라 하나로 한 판이 돌아간다.

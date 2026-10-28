@@ -12,7 +12,7 @@ public sealed class AgentTools
 
     public AgentTools(HarnessSession session) => _session = session;
 
-    [McpTool("agent_list")]
+    [McpTool(HarnessConstants.Tools.AgentList)]
     [Description("하네스에 접속한 에이전트(서버 프로세스, Unity)와 그 디버그 명령을 찾는다. query 없이 부르면 에이전트 목록과 명령 영역 요약" +
                  "(영역, 명령 수, 설명)만 - 명령 전체는 query=<영역>(예: shop, cheat, editor)으로 그 영역만 본다. query는 영역 이름 또는 " +
                  "명령 이름(예: shop.buy)만 받는다(모르면 영역 목록을 hint로 돌려줌). agent_command를 쓰기 전에 그 영역을 한 번 볼 것.")]
@@ -88,9 +88,9 @@ public sealed class AgentTools
         if (matched.Count == 0)
         {
             if (!registered)
-                throw new HarnessException($"모르는 영역 '{area}'", $"query에 쓸 수 있는 영역: {CommandAreas.Names} (또는 명령 이름 예: shop.buy)");
+                return new ToolError($"모르는 영역 '{area}'", $"query에 쓸 수 있는 영역: {CommandAreas.Names} (또는 명령 이름 예: shop.buy)");
 
-            throw new HarnessException(
+            return new ToolError(
                 isCommand ? $"명령 '{key}'를 가진 에이전트가 없음" : $"'{area}' 영역 명령을 가진 에이전트가 지금 없음",
                 $"영역 '{area}'의 대상: {(CommandAreas.TryGet(area, out var info) ? info.Agents : "?")} - 그 에이전트가 붙었는지 agent_list()로 확인" +
                 " (Unity 쪽이면 Play 중이어야 함)");
@@ -111,19 +111,22 @@ public sealed class AgentTools
         };
     }
 
-    [McpTool("agent_command")]
+    [McpTool(HarnessConstants.Tools.AgentCommand)]
     [Description("에이전트에 디버그 명령 하나를 보내고 결과를 받는다(예: agent=GameAgent, command=process.status). ok는 '명령 함수가 예외 없이 " +
                  "끝났다'는 뜻일 뿐 - 그 결과로 일어나야 할 일은 이벤트(wait_for)로 확인할 것.")]
     public async Task<object> AgentCommand(
         [Description("에이전트 이름(agent_list의 name)")] string agent,
         [Description("명령 이름(예: process.status) - agent_list(query=<영역>)으로 찾는다")] string command,
         [Description("명령 인자 객체(예: {\"slotIndex\":1}). 없으면 생략")] JsonElement? args = null,
-        [Description("결과 대기 시간(초)")] int timeoutSeconds = 15,
+        [Description("결과 대기 시간(초)")] int timeoutSeconds = HarnessConstants.Limits.AgentCommandTimeoutSeconds,
         CancellationToken ct = default)
     {
-        var session = _session.Host.Agents.FirstOrDefault(a => string.Equals(a.Name, agent, StringComparison.OrdinalIgnoreCase))
-                      ?? throw new HarnessException($"'{agent}' 에이전트가 없음",
-                          $"접속 중: {string.Join(", ", _session.Host.Agents.Select(a => a.Name).DefaultIfEmpty("없음"))}");
+        var session = _session.Host.Agents.FirstOrDefault(a => string.Equals(a.Name, agent, StringComparison.OrdinalIgnoreCase));
+        if (session == null)
+        {
+            return new ToolError($"'{agent}' 에이전트가 없음",
+                $"접속 중: {string.Join(", ", _session.Host.Agents.Select(a => a.Name).DefaultIfEmpty("없음"))}");
+        }
 
         var sinceSeq = _session.Timeline.LastSeq;
         // 인자는 그대로 JSON으로 넘긴다(AgentSession이 익명 객체/딕셔너리를 JSON → protobuf Struct로 바꾼다).
@@ -131,7 +134,7 @@ public sealed class AgentTools
             ? JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(a.GetRawText())
             : null;
 
-        var outcome = await session.InvokeAsync(command, payload, TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 1, 300)), ct);
+        var outcome = await session.InvokeAsync(command, payload, TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 1, HarnessConstants.Limits.AgentCommandMaxTimeoutSeconds)), ct);
         return new
         {
             sinceSeq,

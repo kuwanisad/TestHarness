@@ -16,8 +16,8 @@ internal static class GrpcChannels
         var handler = new SocketsHttpHandler
         {
             EnableMultipleHttp2Connections = true,
-            KeepAlivePingDelay = TimeSpan.FromSeconds(10),
-            KeepAlivePingTimeout = TimeSpan.FromSeconds(5),
+            KeepAlivePingDelay = TimeSpan.FromSeconds(HarnessConstants.Limits.HeadlessKeepAlivePingSeconds),
+            KeepAlivePingTimeout = TimeSpan.FromSeconds(HarnessConstants.Limits.HeadlessKeepAliveTimeoutSeconds),
             KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests,
         };
 

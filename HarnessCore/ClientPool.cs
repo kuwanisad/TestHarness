@@ -87,7 +87,7 @@ public sealed class ClientPool : IAsyncDisposable
         };
         lock (_lock) _clients[alias] = entry;
 
-        _timeline.RecordHarness("client.created", $"{alias} 생성(계정 {id})", new { alias, accountId = id });
+        _timeline.RecordHarness(HarnessConstants.HarnessEvents.ClientCreated, $"{alias} 생성(계정 {id})", new { alias, accountId = id });
         return Snapshot(entry);
     }
 
@@ -226,7 +226,7 @@ public sealed class ClientPool : IAsyncDisposable
             entry.Gate.Release();
         }
 
-        _timeline.RecordHarness("client.closed", $"{alias} 닫음", new { alias });
+        _timeline.RecordHarness(HarnessConstants.HarnessEvents.ClientClosed, $"{alias} 닫음", new { alias });
     }
 
     /// <summary>
@@ -260,7 +260,7 @@ public sealed class ClientPool : IAsyncDisposable
             loggedOut = client.Events.Snapshot().Any(e => e.Kind == ClientEventKind.LoggedOut);
         }
 
-        _timeline.RecordHarness("account.created", $"계정 {id} 생성(로그아웃={loggedOut})", new { accountId = id, loggedOut });
+        _timeline.RecordHarness(HarnessConstants.HarnessEvents.AccountCreated, $"계정 {id} 생성(로그아웃={loggedOut})", new { accountId = id, loggedOut });
         return (id, pw, ToSummary(login), ToSummary(lobby), loggedOut);
     }
 

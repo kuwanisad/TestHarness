@@ -9,10 +9,10 @@ namespace TestHarness.HarnessHost;
 public sealed class HarnessHostOptions
 {
     /// <summary>테스트 대상들이 접속할 포트. 대상에겐 HARNESS_ADDRESS로 <see cref="HarnessHost.Address"/>를 넘긴다.</summary>
-    public int Port { get; init; } = 9000;
+    public int Port { get; init; } = HarnessConstants.Defaults.AgentPort;
 
     /// <summary>명령 결과를 기다리는 기본 시간.</summary>
-    public TimeSpan CommandTimeout { get; init; } = TimeSpan.FromSeconds(15);
+    public TimeSpan CommandTimeout { get; init; } = TimeSpan.FromSeconds(HarnessConstants.Limits.AgentCommandTimeoutSeconds);
 
     /// <summary>이벤트가 기록될 때마다 한 줄씩 받는다(콘솔/파일 출력용).</summary>
     public Action<HarnessEvent>? EventSink { get; init; }
@@ -37,7 +37,7 @@ public sealed class HarnessHost : IAsyncDisposable
     {
         _app = app;
         _registry = registry;
-        Address = $"http://localhost:{port}";
+        Address = string.Format(HarnessConstants.Defaults.LocalAddressFormat, port);
     }
 
     /// <summary>테스트 대상에게 HARNESS_ADDRESS로 넘길 주소.</summary>
@@ -80,7 +80,7 @@ public sealed class HarnessHost : IAsyncDisposable
         if (existing is { IsConnected: true }) return existing;
 
         await Events.WaitForAsync(
-            e => e.AgentName == name && e.Name == HarnessEventNames.Attached,
+            e => e.AgentName == name && e.Name == HarnessSharedConstants.Events.HarnessAttached,
             timeout, startSeq, $"{name} 접속", cancellationToken);
 
         return _registry.Find(name)
@@ -91,7 +91,7 @@ public sealed class HarnessHost : IAsyncDisposable
     {
         // 대상이 아직 접속해 있으면(시나리오가 중간에 실패해 서버를 못 끈 경우 등) Kestrel은 기본으로
         // 30초까지 스트림이 끝나길 기다린다 - 하네스 종료가 그만큼 멈추지 않게 짧게 끊는다.
-        using var shutdownCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var shutdownCts = new CancellationTokenSource(TimeSpan.FromSeconds(HarnessConstants.Limits.HostShutdownSeconds));
         try { await _app.StopAsync(shutdownCts.Token); }
         catch (OperationCanceledException) { /* 남은 연결은 강제로 끊김 */ }
         await _app.DisposeAsync();

@@ -24,12 +24,19 @@ Unity 쪽은 `Unity/TODO.md`.
 
 - **DebugManager 로그 중계 PC 확인** - 구현 끝(10-24, CLAUDE.md "테스트 코드 분리" 예외). reconnect 시나리오가 `s.Logs`(로비 2종 수집, 콘솔 없음)를
   선언 - 콘솔에 "[LobbyClientDisconnected]"가 안 뜨고 `logs/client1.log`에는 있는지, 로그 파일의 노드 경계 줄, 끝난 뒤 `log.state`가 전부(null)인지.
-- **코드 정리** - 하네스 코드가 하네스 쪽에만 있는지, 응집도, 당시 상황용 하드코딩, 일관성을 기준으로 전체를 훑는다(10-24 합의, E/F 다음).
+- **코드 정리 PC 확인** - 구현 끝(10-25). 확인할 것: Unity 컴파일(게임 필드 internal + TestAPIStatics, Tester 등 `Scripts/Test/Local` 이동,
+  새 `.meta`), reconnect 자동 실행 통과, `status.screen`/`status.replication` 응답, 없는 `status.*`가 "구현부가 없음"으로 실패하는지,
+  Play 중 UnityEditor.log에 게임 로그가 두 번 남지 않는지(에디터 브리지 로그 전달 멈춤), 서버 빌드 때 HarnessSharedConstants 복사.
 
 ## 3. 논의 대기
 
 - **게임 모드 설정 바꾸기(인원 등)** - 지금 구조로는 게임 코드 변경 필요 - 다른 테스트 도구들의 해결 방식 조사 후 논의.
 - **같은 방 시험(사람 둘 중 재접속/탈주)** - 매칭 인원 문제(위 게임 모드 설정) 뒤로.
+- **Unity 테스트 코드 .asmdef 분리** - 지금은 asmdef가 없어 테스트 코드가 게임 코드와 같은 `Assembly-CSharp`에 들어가고, 명령 레지스트리
+  (`HarnessCommandRegistry(typeof(HarnessAgent).Assembly)`)가 게임 코드 전체를 훑는다. 테스트 어셈블리로 나눠 하네스가 부를 함수만 담는다.
+  정할 점: 게임 코드가 부르는 `DebugManager`를 어느 어셈블리에 둘지(테스트 어셈블리에 두면 게임 → 테스트 참조가 생김), 에디터 브리지
+  (`Harness/Editor`)용 에디터 asmdef, 정식 빌드에서 테스트 어셈블리 빼기(Define Constraints 등)(10-24).
+  나누면 테스트 코드가 `TestAPIStatics`로 읽는 게임 `internal` 필드를 위해 게임 어셈블리에 `InternalsVisibleTo`가 필요하다(10-25).
 
 ## 4. 하네스 개선
 

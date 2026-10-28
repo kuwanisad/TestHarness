@@ -22,7 +22,7 @@ public sealed class TH_JudgeContext
         NodeId = nodeId;
         SinceSeq = sinceSeq;
         Events = events;
-        Calls = calls.Where(c => c.Actor == ToolCallLog.ActorRunner).ToList();
+        Calls = calls.Where(c => c.Actor == HarnessConstants.Actors.Runner).ToList();
     }
 
     public string NodeId { get; }

@@ -14,9 +14,9 @@ public sealed class TH_CheatCommandsScenario : TH_Scenario
 {
     protected override void Build(TH_ScenarioBuilder s)
     {
-        var client = s.UnityClient("client1", startScene: TH_Scenes.Login);
-        var server = s.UnityServer(startScene: TH_Scenes.ServerBoot);
-        var editor = s.UnityEditor(bootScene: TH_Scenes.HarnessBoot); // 씬 이름은 TH_Scenes - ⚠ Unity 씬 파일 이름과 같아야 함
+        var client = s.UnityClient("client1", startScene: Scenes.Login);
+        var server = s.UnityServer(startScene: Scenes.ServerBoot);
+        var editor = s.UnityEditor(bootScene: Scenes.HarnessBoot); // 씬 이름은 HarnessConstants.Scenes - ⚠ Unity 씬 파일 이름과 같아야 함
 
         s.Context("테스트 조작 명령(cheat.*)과 클라 판매(shop.sell)가 제대로 동작하는지 본다 - cheat 코드나 국면/상점 코드를 고친 뒤에 돌린다.");
         s.Context("ReadyIngame@client1(서버 기동부터 인게임까지 묶음)으로 들어간 뒤 BuyPlace, (BuyPlace가 merged=true면 MergeCheck), Sell, " +
@@ -45,7 +45,7 @@ public sealed class TH_CheatCommandsScenario : TH_Scenario
             const string why = "자동 실행 기본 경로";
             if ((await p.Run(ReadyIngame(editor, server, client), why)).Result != TH_Result.Pass) return;
             if ((await p.Run(BuyPlace(client), why)).Result != TH_Result.Pass) return;
-            if (p.Values.For(client).Get<bool>(TH_ValueKeys.Merged)) await p.Run(MergeCheck(client), "BuyPlace에서 합성됨"); // 자동 실행에서는 AI 판정 노드라 미확인으로 남는다
+            if (p.Values.For(client).Get<bool>(ValueKeys.Merged)) await p.Run(MergeCheck(client), "BuyPlace에서 합성됨"); // 자동 실행에서는 AI 판정 노드라 미확인으로 남는다
             await p.Run(Sell(client), why);
             if ((await p.Run(PlanningCurrentOnly(client), why)).Result != TH_Result.Pass) return;
             if ((await p.Run(PlanningSettingOnly(client), why)).Result != TH_Result.Pass) return;

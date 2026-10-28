@@ -242,20 +242,20 @@ missing-harness, already-running, aborted 등 영문 코드), pid, 로그 경로
    창에서 메인 에디터(Player 1)에 `Client1`, 가상 플레이어 하나에 `Server`를 단다(클라가 더 필요한 시나리오면 다른 가상 플레이어에
    `Client2` …). 그러면
    - 하네스 이름이 태그를 소문자로 한 것(`client1`, `client2`, `server`)이 된다. 시나리오는 이 이름으로 대상을 선언한다
-     (`s.UnityClient("client1", startScene: TH_Scenes.Login)`).
+     (`s.UnityClient("client1", startScene: Scenes.Login)`).
    - **하네스 Play**는 빈 씬 `HarnessBoot`(`Unity/Assets/Test/HarnessBoot.unity`)에서 출발한다. 시나리오가 씬을 선언한다:
-     `s.UnityEditor(bootScene: TH_Scenes.HarnessBoot)`, `s.UnityClient("client1", startScene: TH_Scenes.Login)`,
-     `s.UnityServer(startScene: TH_Scenes.ServerBoot)`. 흐름: 시나리오 시작 때 하네스가 모든 에디터(메인 + MPPM 가상 플레이어)의 Play 시작 씬을
+     `s.UnityEditor(bootScene: Scenes.HarnessBoot)`, `s.UnityClient("client1", startScene: Scenes.Login)`,
+     `s.UnityServer(startScene: Scenes.ServerBoot)`. 흐름: 시나리오 시작 때 하네스가 모든 에디터(메인 + MPPM 가상 플레이어)의 Play 시작 씬을
      HarnessBoot로 정한다(준비 단계, `editor.set_play_start` - 에디터에 열린 씬은 바꾸지 않음) → `UnityPlay`가 Play → 플레이어마다
      `scene.load(시작 씬)` → 시나리오 끝에 시작 씬을 되돌림(지속 조작 `play_start`, `editor.clear_play_start`). 실제 빌드와 같은 시작 경로다(서버는
      `ServerBoot` → `IngameServerBootstrap`이 `Ingame` 씬을 열고 서버 오브젝트를 만든다). 열린 씬에 저장 안 한 변경이 있으면 Play 때 저장 창이
      뜨므로 `editor.play`가 거부한다. 왜 빈 씬인지, 왜 열린 씬을 바꾸지 않는지는 `Unity/ARCHITECTURE.md` "HarnessBoot 씬". 하네스가 되돌리지 못하고
      끝났으면 Unity 메뉴 Test → Harness → Play 시작 씬 되돌리기.
-   - ⚠ **하네스의 씬 이름(`HarnessScenarios/Targets/TH_Targets.cs`의 `TH_Scenes`)과 Unity 씬 파일 이름이 같아야 한다**(확장자 뺀 이름,
-     대소문자 포함). 에디터 브리지와 에이전트가 이름으로 찾는다. Unity에서 씬 이름을 바꾸면 `TH_Scenes`도 같이 고친다. 확인은
+   - ⚠ **하네스의 씬 이름(`HarnessShared/HarnessConstants.cs`의 `HarnessConstants.Scenes`)과 Unity 씬 파일 이름이 같아야 한다**(확장자 뺀 이름,
+     대소문자 포함). 에디터 브리지와 에이전트가 이름으로 찾는다. Unity에서 씬 이름을 바꾸면 `HarnessConstants.Scenes`도 같이 고친다. 확인은
      `agent_command(UnityEditor, editor.scenes)`. 플레이어 시작 씬은 Scene List에도 있어야 한다(`scene.load`).
    - **사람이 손으로 Play**할 때는 TestScene을 열고 Play한다 - `Tester`가 태그대로 역할 씬(클라 `Login`, 서버 `ServerBoot`)을 바로 연다
-     (`Unity/Assets/Test/TestRoleSettings.cs`). 태그가 없으면 역할 버튼이 뜬다.
+     (`Unity/Assets/Scripts/Test/Local/TestRoleSettings.cs`). 태그가 없으면 역할 버튼이 뜬다.
 3. **백그라운드에서도 돌게**: AI는 Claude Code 창에서 일하므로 에디터는 늘 백그라운드다. Preferences → General →
    Interaction Mode를 **No Throttling**으로, Player Settings → Resolution and Presentation → **Run In Background**를 켠다.
 
@@ -283,6 +283,7 @@ node_run(node, reason)        → 하네스가 실행(묶음 노드는 자식부
   (judgedBy=ai 노드면) node_judge(node, result, evidenceSeqs, note)
   ... AI가 맥락을 보고 반복 ...
 scenario_finish(reason)       → 하네스가 정리 노드 → 보고서 → 알림음 → 실행(run) 닫기(서버/헤드리스 클라가 남았으면 열어 둠)
+                                노드 실행 중(자동 실행 중)이면 일찍 끝내기 - 실행 중인 노드는 Stopped(판정 안 함), 그 뒤 노드는 안 돎
 ```
 
 - **대상**: 시나리오는 테스트 대상을 인스턴스로 선언한다(`HarnessScenarios/Targets/TH_Targets.cs` - `s.UnityClient("client1")`,
@@ -300,7 +301,10 @@ scenario_finish(reason)       → 하네스가 정리 노드 → 보고서 → �
   코드로 판정할 수 없는 노드만 `AiJudged()`(시나리오의 `AllowAiJudge`가 true일 때만) - AI가 `node_judge`로 보고, 근거 seq 필수.
 - **AI가 언제든 끝낸다**: 맥락(`s.Context`)을 보고 충분하면 `scenario_finish`. 특정 노드까지 갈 필요 없다. 예정보다 일찍 끝났는지는
   보고서의 맥락과 "노드별 결과"로 본다.
-- **환경 변화 = 테스트 대상의 변화**(목록은 `HarnessCore/Scenarios/TH_EnvironmentChanges.cs` 한 곳): 서버 빌드·기동·종료·개별 재기동, Unity 재컴파일,
+- **일찍 끝내기**: 노드 실행 중(또는 자동 실행 중)에도 `scenario_finish`를 받는다. 실행 중인 행동 노드는 멈추고 `Stopped`(판정 안 함 - 실패도
+  미확인도 아님), 묶음 노드는 돈 자식은 그 결과대로·멈춘 자식은 Stopped·안 돈 자식은 '실행 안 한 자식'. 노드를 더 돌리지 않고(이어서 진행하지 않음 -
+  멈춘 노드가 게임을 어중간한 상태로 두므로) 정리 노드 → 보고서(실제로 돈 방문만으로, 머리에 "일찍 끝냄") → 경고음. 정리 노드는 멈추지 않는다.
+- **환경 변화 = 테스트 대상의 변화**(분류기는 `HarnessCore/Scenarios/TH_EnvironmentChanges.cs`, 게임 쪽 항목은 `HarnessScenarios/Knowledge/TH_ProjectKnowledge.cs`에서 등록): 서버 빌드·기동·종료·개별 재기동, Unity 재컴파일,
   계정 생성(나중의 계정 삭제·친구 추가/삭제 명령), 그리고 **하네스 밖의 빌드**(노드 실행 직전마다 서버 DLL 수정 시각 비교). 노드와 노드 사이에
   생기면 환경 번호가 올라가고 그 전 결과는 "이전 환경"(방문 기록이 초기화된 것과 같음 - 결과는 보고서에 남음), 다음 응답에 알린다.
   노드 실행 중의 변화는 그 노드의 의도된 행동이라 세지 않는다. 테스트 조작(`cheat.time_scale` 등)은 환경 변화가 아니다.
@@ -312,9 +316,9 @@ scenario_finish(reason)       → 하네스가 정리 노드 → 보고서 → �
 - 끝나면(어떤 경우든 정리 노드까지 - 하네스가 판단) 하네스 PC에서 소리: 전부 통과면 완료음(tada.wav), 아니면 경고음. 시나리오마다 `s.PlayFinishSound`.
 - 보고서는 하네스가 쓴다: 맥락, 방문 순서(노드·환경·판정·고른 이유), 환경 변화, 노드별 결과(현재 환경/이전 환경), 방문 상세(자식 결과, 메모),
   순서 위반, 노드 밖에서 일어난 일(노드 사이에 대상 에이전트가 끊기거나 클라 인게임 접속이 끊기거나 사람 플레이어가 탈락 - 판정에 안 들어가므로 머리에 경고, 목록은
-  `HarnessCore/Scenarios/TH_OutsideEvents.cs`). 방문마다 그 구간의 이벤트 + 서버/Unity 로그를 `trace/` 파일로 남기고, 통과 못 한 방문에는 요약(이벤트 + 경고 이상 로그, 마지막 30줄).
+  `HarnessCore/Scenarios/TH_OutsideEvents.cs`의 등록부 - 게임 쪽 항목은 `TH_ProjectKnowledge`에서 등록). 방문마다 그 구간의 이벤트 + 서버/Unity 로그를 `trace/` 파일로 남기고, 통과 못 한 방문에는 요약(이벤트 + 경고 이상 로그, 마지막 30줄).
   보고서와 구간 기록의 시각은 이 PC의 지역 시각이다(원본 events.jsonl, 로그 json은 UTC - 맞춰 볼 때는 seq로).
-  메인 에디터의 중복 로그(UnityEditor와 client가 각자 남김)는 구간 기록에서 같은 pid·시각·메시지면 한 줄로 합친다.
+  메인 에디터는 Play 중 게임 에이전트가 붙어 있으면 에디터 브리지가 로그를 보내지 않는다(같은 로그가 두 번 남지 않음).
 
 | 시나리오 | 내용 |
 |---|---|
@@ -328,7 +332,7 @@ scenario_finish(reason)       → 하네스가 정리 노드 → 보고서 → �
 ### 지속 조작 (배속, 설정값 ...)
 
 한 번 보내면 끝나는 명령이 아니라 켜 두면 남는 조작을 하네스가 추적하고 되돌린다(`HarnessCore/OverrideManager.cs`). 전용 도구는 없다 -
-도구 호출 기록을 지켜보다가 목록(`HarnessCore/OverrideKinds.cs`)에 있는 명령이 성공하면 "켜짐", 값이 처음 값으로 돌아가면 "꺼짐".
+도구 호출 기록을 지켜보다가 목록(`HarnessScenarios/Knowledge/TH_ProjectKnowledge.cs`의 `TH_OverrideKinds`)에 있는 명령이 성공하면 "켜짐", 값이 처음 값으로 돌아가면 "꺼짐".
 그래서 노드 실행이든 AI의 `agent_command`든 같은 경로로 잡힌다.
 
 | 종류 | 명령 | 범위 | 되돌리기 | 조회(확인 대기일 때만) |
@@ -355,7 +359,7 @@ scenario_finish(reason)       → 하네스가 정리 노드 → 보고서 → �
   `s.OverrideMismatch`대로 - 기본 Reject(노드 거부, 묶음 자식이면 그 자식 Fail), 남은 조작이 있어도 진행해야 하는 시나리오만 Warn(돌리고 경고).
 - **보이는 곳**: `harness_status`의 overrides(켜진 것, 확인 대기면 unconfirmed), 타임라인 `override.applied / changed / reverted / unconfirmed /
   confirmed`, `scenario.override_mismatch`, 시나리오 보고서의 "지속 조작" 절(되돌리기 실패 뒤 끝난 것은 그 이유도).
-- 테스트 조작이라 환경 변화(테스트 대상의 변화)가 아니다. 새 지속 조작 명령이 생기면 `OverrideKinds.cs`에 넣는다.
+- 테스트 조작이라 환경 변화(테스트 대상의 변화)가 아니다. 새 지속 조작 명령이 생기면 `TH_OverrideKinds`에 넣는다.
 - 종류 `fault`(아래 경계 장애 규칙)는 되돌리기가 `fault.remove`이고, 실제로 걸린 횟수(`fault.hit`)를 센다 - 한 번도 안 걸린 채 끝나면
   `override.unused`로 알리고 보고서에 "0 - 한 번도 안 걸림"으로 남는다.
 
@@ -418,7 +422,7 @@ scenario_finish(reason)       → 하네스가 정리 노드 → 보고서 → �
 | `events.jsonl` | (HarnessDaemon) 타임라인 전체 - 에이전트/클라/하네스 이벤트와 AI 도구 호출 요약(source=ai)을 한 줄에 JSON 하나씩 |
 | `mcp-calls.jsonl` | (HarnessDaemon) 모든 도구 호출의 요청/응답 전문(seq, 실행 중이던 노드, actor: ai = AI / runner = 노드를 실행한 하네스). 응답 전에 클라가 끊은 호출도 오류("응답 전에 호출이 끊김")로 남는다. 실행이 없을 때의 호출은 `runs/mcp-calls-outside-run.jsonl` |
 | `scenario-<이름>-<시각>-state.json` / `-report.md` | (HarnessDaemon) 시나리오 진행 상태 / 하네스가 쓴 보고서 |
-| `trace/scenario-<이름>-<시각>-<번호>-<노드>.txt` | (HarnessDaemon) 방문(노드 실행 한 번) 구간의 이벤트 + 서버/Unity 로그(시각순, 같은 프로세스의 중복 로그는 합침) |
+| `trace/scenario-<이름>-<시각>-<번호>-<노드>.txt` | (HarnessDaemon) 방문(노드 실행 한 번) 구간의 이벤트 + 서버/Unity 로그(시각순) |
 | `devtools/<번호>-<동작>.txt` | (HarnessDaemon) DevTools 스크립트 콘솔 출력 |
 | `build/<번호>-<프로젝트>.txt` | (HarnessDaemon) `server_build`의 프로젝트별 빌드 출력 |
 
@@ -441,9 +445,9 @@ Get-Content MasterServer.log | ForEach-Object { $j = $_ | ConvertFrom-Json; "$($
 규칙(서버/Unity 공통):
 
 - 이름은 `<영역>.<동작>` 소문자 (예: `process.status`, `shop.buy`). 프로세스 안에서 중복 금지.
-- **영역은 하네스에 등록된 것만** 쓴다(`HarnessCore/CommandAreas.cs` - editor, client, shop, cheat, ingame, log, process).
+- **영역은 하네스에 등록된 것만** 쓴다(공통 영역 log, process, status는 `HarnessCore/CommandAreas.cs`, 게임 영역 editor, client, shop, cheat, ingame, net, scene 등은 `HarnessScenarios/Knowledge/TH_ProjectKnowledge.cs`에서 등록).
   영역은 "무엇을 다루나"(대상)로 정한다 - 동작 단어는 영역이 아니다(`buy.piece`가 아니라 `shop.buy`). 조회는 `state`(한 대상)나
-  `list`(여러 개)로. 새 영역이 필요하면 `CommandAreas.cs`에 먼저 등록한다 - 등록 안 된 영역은 `agent_list`가 `unknownAreas`로 드러낸다.
+  `list`(여러 개)로. 새 영역이 필요하면 `TH_ProjectKnowledge`에 먼저 등록한다 - 등록 안 된 영역은 `agent_list`가 `unknownAreas`로 드러낸다.
   AI는 `agent_list(query=<영역>)`으로 명령을 찾으므로 영역 이름이 곧 검색 키워드다.
 - 파라미터는 하네스가 보낸 인자에서 이름으로 채운다(대소문자 무시). 모르는 인자, 빠진 인자, 타입이 안 맞는 인자는 이유와 함께 거부된다.
 - 반환값은 하네스로 간다. 예외를 던지면 `ok=false`와 예외 메시지가 간다.
@@ -498,7 +502,7 @@ Unity 오브젝트 null 검사는 `??` 대신 `== null`로 한다. 파괴된 오
 게임 코드가 상황을 알리는 로그는 `DebugManager.Log(GameLogType, 내용)`(`Assets/Scripts/Test/DebugManager.cs` - 게임 코드가 부를 수 있는 유일한
 테스트 코드)로 찍는다. 무엇을 하네스로 모으고(collect) 콘솔에 띄울지(console)는 시나리오가 `s.Logs(...)`로 정한다 - 러너가 시작과 Unity 대상 접속 때
 `log.filter`를 보내고 끝나면 전부로 되돌린다(선언 안 하면 전부, 빈 목록이면 하나도 없음). 지금 목록은 `log.state`. 노드마다 보는 구간은 로그 파일의
-노드 경계 줄(`===== 노드 시작: … =====` - 형식은 `HarnessCore/HarnessConstants.cs`)로 나눈다.
+노드 경계 줄(`===== 노드 시작: … =====` - 형식은 `HarnessShared/HarnessConstants.cs`)로 나눈다.
 
 ### 기본 제공 명령과 이벤트
 
@@ -506,7 +510,7 @@ Unity 오브젝트 null 검사는 `??` 대신 `== null`로 한다. 파괴된 오
 |---|---|
 | 모든 서버 / Unity | `process.info`, `log.mark(text)` |
 | GameAgent | `process.status`(게임 서버 연결, 부하) |
-| Unity | `process.status`(네트워크 역할, 씬, 프레임), `log.recent`, `scene.load(scene)`(그 플레이어의 씬 전환 → `scene.loaded`), `net.*`(NGO 통신 조건 - 아래 절), 클라 `client.*`/`shop.*`, 서버 `ingame.rooms`/`cheat.*` (위 Unity 표) |
+| Unity | `process.status`(프로세스 정보만 - 네트워크 역할, 씬, 프레임, 배속), `status.screen(types)`(클라 화면: 단계·씬 역할·Pawn·UIManager·타입별 개수), `status.replication`(클라 received / 서버 expected·observed), `log.recent`, `scene.load(scene)`(그 플레이어의 씬 전환 → `scene.loaded`), `net.*`(NGO 통신 조건 - 아래 절), 클라 `client.*`/`shop.*`, 서버 `ingame.rooms`/`cheat.*` (위 Unity 표) |
 
 | 이벤트 | 보내는 쪽 | 데이터 |
 |---|---|---|

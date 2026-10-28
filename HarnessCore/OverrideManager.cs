@@ -100,12 +100,6 @@ public sealed class OverrideRecord
 /// </summary>
 public sealed class OverrideManager : IDisposable
 {
-    public const string ReasonNodeEnd = "node_end";
-    public const string ReasonScenarioEnd = "scenario_end";
-    public const string ReasonManual = "manual";
-    public const string ReasonAgentGone = "agent_gone";
-    public const string ReasonScopeGone = "scope_gone";
-
     private readonly Timeline _timeline;
     private readonly ToolCallLog _calls;
     private readonly object _lock = new();
@@ -174,10 +168,10 @@ public sealed class OverrideManager : IDisposable
             var error = await Send(record, prior, $"노드 끝 - {record.Id}를 노드 직전 값으로", ct);
             record.Adjusting = false;
             if (error != null)
-                _timeline.RecordHarness("override.revert_failed", $"지속 조작 {record.Id}를 노드 직전 값({prior})으로 못 돌림: {error}", record.View());
+                _timeline.RecordHarness(HarnessConstants.HarnessEvents.OverrideRevertFailed, $"지속 조작 {record.Id}를 노드 직전 값({prior})으로 못 돌림: {error}", record.View());
         }
 
-        await RevertWhere(r => r.Owner == nodePath, ReasonNodeEnd, ct);
+        await RevertWhere(r => r.Owner == nodePath, HarnessConstants.OverrideReasons.NodeEnd, ct);
     }
 
     /// <summary>켜진 조작을 전부 되돌린다(시나리오가 끝날 때 - 정리 노드 전에).</summary>
@@ -219,7 +213,7 @@ public sealed class OverrideManager : IDisposable
                 }
             }
             if (stillActive)
-                _timeline.RecordHarness("override.unconfirmed", $"지속 조작 {record.Id}({record.Kind.Name}{ScopeText(record)}) 되돌리기 실패 - 확인 대기: {error}", record.View());
+                _timeline.RecordHarness(HarnessConstants.HarnessEvents.OverrideUnconfirmed, $"지속 조작 {record.Id}({record.Kind.Name}{ScopeText(record)}) 되돌리기 실패 - 확인 대기: {error}", record.View());
         }
     }
 
@@ -242,7 +236,7 @@ public sealed class OverrideManager : IDisposable
                 try
                 {
                     var args = HarnessJson.Serialize(new { agent = record.Agent, command = probe.Command, args = probe.Args?.Invoke(record.Scope) });
-                    var result = await Tools.InvokeAsync("agent_command", args, $"확인 {record.Id} ({record.Kind.Name})", ct);
+                    var result = await Tools.InvokeAsync(HarnessConstants.Tools.AgentCommand, args, $"확인 {record.Id} ({record.Kind.Name})", ct);
                     if (!result.IsError && result.Value.Bool("ok") && result.Value.Get("value") is { ValueKind: JsonValueKind.Object } value)
                         read = probe.Read(value, record.Scope);
                 }
@@ -255,11 +249,11 @@ public sealed class OverrideManager : IDisposable
             if (read is not { } r) continue; // 모름 - 확인 대기 그대로
             if (r.Gone)
             {
-                End(record, $"{ReasonScopeGone}(확인)", null);
+                End(record, $"{HarnessConstants.OverrideReasons.ScopeGone}(확인)", null);
             }
             else if (r.Value == record.Before)
             {
-                End(record, $"{ReasonManual}(확인 - 이미 처음 값)", null);
+                End(record, $"{HarnessConstants.OverrideReasons.Manual}(확인 - 이미 처음 값)", null);
             }
             else
             {
@@ -269,7 +263,7 @@ public sealed class OverrideManager : IDisposable
                     record.Unconfirmed = null;
                     if (r.Value != null) record.After = r.Value;
                 }
-                _timeline.RecordHarness("override.confirmed", $"지속 조작 {record.Id}({record.Kind.Name}{ScopeText(record)})가 남아 있음(확인): {record.After}", record.View());
+                _timeline.RecordHarness(HarnessConstants.HarnessEvents.OverrideConfirmed, $"지속 조작 {record.Id}({record.Kind.Name}{ScopeText(record)})가 남아 있음(확인): {record.After}", record.View());
             }
         }
     }
@@ -286,7 +280,7 @@ public sealed class OverrideManager : IDisposable
                 command = record.Kind.RevertCommand ?? record.Kind.Command,
                 args = record.Kind.RevertArgs(record.Scope, value),
             });
-            var result = await Tools.InvokeAsync("agent_command", args, objective, ct);
+            var result = await Tools.InvokeAsync(HarnessConstants.Tools.AgentCommand, args, objective, ct);
             if (result.IsError) return result.ErrorText;
             return result.Value.Bool("ok") ? null : result.Value.Str("error") ?? "명령 실패";
         }
@@ -314,7 +308,7 @@ public sealed class OverrideManager : IDisposable
                 target = _records.FirstOrDefault(r => r.Active && r.Kind == endingKind && r.Scope == endedScope &&
                                                      string.Equals(r.Agent, agent, StringComparison.OrdinalIgnoreCase));
             }
-            if (target != null) End(target, target.Reverting ?? ReasonManual, call.Seq);
+            if (target != null) End(target, target.Reverting ?? HarnessConstants.OverrideReasons.Manual, call.Seq);
             return;
         }
 
@@ -336,7 +330,7 @@ public sealed class OverrideManager : IDisposable
             if (existing == null)
             {
                 if (after == before) return; // 바뀐 게 없음
-                var owner = call.Actor == ToolCallLog.ActorRunner ? call.Objective : null;
+                var owner = call.Actor == HarnessConstants.Actors.Runner ? call.Objective : null;
                 applied = new OverrideRecord($"o{++_nextId}", kind, agent, scope, before, after, call.Seq, call.Actor, owner);
                 _records.Add(applied);
             }
@@ -351,7 +345,7 @@ public sealed class OverrideManager : IDisposable
             else
             {
                 // 주인이 아닌 노드가 값을 바꾸면 그 노드의 몫을 기록해 둔다(노드 끝에 직전 값으로).
-                if (!existing.Adjusting && existing.Reverting == null && call.Actor == ToolCallLog.ActorRunner && call.Objective is { } node && node != existing.Owner &&
+                if (!existing.Adjusting && existing.Reverting == null && call.Actor == HarnessConstants.Actors.Runner && call.Objective is { } node && node != existing.Owner &&
                     existing.Layers.All(l => l.Owner != node))
                     existing.Layers.Add((node, existing.After));
                 existing.After = after;
@@ -360,16 +354,16 @@ public sealed class OverrideManager : IDisposable
         }
 
         if (applied != null)
-            _timeline.RecordHarness("override.applied", $"지속 조작 켜짐 {applied.Id}: {kind.Name} {applied.Agent}{ScopeText(applied)} {before}→{after}", applied.View());
+            _timeline.RecordHarness(HarnessConstants.HarnessEvents.OverrideApplied, $"지속 조작 켜짐 {applied.Id}: {kind.Name} {applied.Agent}{ScopeText(applied)} {before}→{after}", applied.View());
         if (changed != null)
-            _timeline.RecordHarness("override.changed", $"지속 조작 바뀜 {changed.Id}: {kind.Name} → {after}", changed.View());
-        if (ended != null) End(ended, ended.Reverting ?? ReasonManual, call.Seq);
+            _timeline.RecordHarness(HarnessConstants.HarnessEvents.OverrideChanged, $"지속 조작 바뀜 {changed.Id}: {kind.Name} → {after}", changed.View());
+        if (ended != null) End(ended, ended.Reverting ?? HarnessConstants.OverrideReasons.Manual, call.Seq);
     }
 
     private void OnEvent(TimelineEvent e)
     {
-        if (!e.Source.StartsWith("agent:", StringComparison.Ordinal)) return;
-        var agent = e.Source["agent:".Length..];
+        if (!e.Source.StartsWith(HarnessConstants.Sources.AgentPrefix, StringComparison.Ordinal)) return;
+        var agent = e.Source[HarnessConstants.Sources.AgentPrefix.Length..];
 
         List<OverrideRecord> gone;
         string reason;
@@ -395,19 +389,19 @@ public sealed class OverrideManager : IDisposable
             if (e.Name == "harness.detached")
             {
                 gone = mine.Where(r => r.Kind.EndsWithAgent).ToList(); // 끊겨도 남는 종류(에디터 설정)는 계속 추적
-                reason = ReasonAgentGone;
+                reason = HarnessConstants.OverrideReasons.AgentGone;
             }
             else
             {
                 gone = mine.Where(r => r.Scope.Length > 0 && r.Kind.ScopeEnded?.Invoke(e) == r.Scope).ToList();
-                reason = e.Data?.Str("reason") is { } why ? $"{ReasonScopeGone}({why})" : ReasonScopeGone;
+                reason = e.Data?.Str("reason") is { } why ? $"{HarnessConstants.OverrideReasons.ScopeGone}({why})" : HarnessConstants.OverrideReasons.ScopeGone;
             }
         }
 
         foreach (var record in gone) End(record, record.Reverting ?? reason, e.Seq);
         foreach (var (record, why) in restored) End(record, why, e.Seq);
         foreach (var record in changedByEvent)
-            _timeline.RecordHarness("override.changed", $"지속 조작 바뀜 {record.Id}: {record.Kind.Name} → {record.After}(이벤트 {e.Name})", record.View());
+            _timeline.RecordHarness(HarnessConstants.HarnessEvents.OverrideChanged, $"지속 조작 바뀜 {record.Id}: {record.Kind.Name} → {record.After}(이벤트 {e.Name})", record.View());
     }
 
     private void End(OverrideRecord record, string reason, long? seq)
@@ -422,9 +416,9 @@ public sealed class OverrideManager : IDisposable
             record.Unconfirmed = null;
         }
 
-        _timeline.RecordHarness("override.reverted", $"지속 조작 끝 {record.Id}: {record.Kind.Name} {record.Agent}{ScopeText(record)} ({reason})", record.View());
+        _timeline.RecordHarness(HarnessConstants.HarnessEvents.OverrideReverted, $"지속 조작 끝 {record.Id}: {record.Kind.Name} {record.Agent}{ScopeText(record)} ({reason})", record.View());
         if (record.Kind.HitEvent != null && record.Hits == 0)
-            _timeline.RecordHarness("override.unused", $"지속 조작 {record.Id}({record.Kind.Name} {record.After})가 한 번도 안 걸리고 끝남 - " +
+            _timeline.RecordHarness(HarnessConstants.HarnessEvents.OverrideUnused, $"지속 조작 {record.Id}({record.Kind.Name} {record.After})가 한 번도 안 걸리고 끝남 - " +
                                                        "조건(메서드, 방향, playerId, match)이 실제 메시지와 맞는지 확인", record.View());
     }
 

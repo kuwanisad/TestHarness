@@ -31,8 +31,8 @@ if (args.Length >= 1 && args[0] == "run" && runScenario == null)
 }
 
 var options = ParseOptions(args);
-var mcpPort = int.Parse(GetArg(args, "--mcp-port") ?? "9100");
-var mcpAddress = $"http://localhost:{mcpPort}/mcp";
+var mcpPort = GetArg(args, "--mcp-port") is { } mcpPortArg ? int.Parse(mcpPortArg) : HarnessConstants.Defaults.McpPort;
+var mcpAddress = string.Format(HarnessConstants.Defaults.LocalAddressFormat, mcpPort) + HarnessConstants.Defaults.McpPath;
 
 HarnessSession session;
 try
@@ -92,7 +92,7 @@ builder.WebHost.ConfigureKestrel(kestrel =>
     kestrel.ListenLocalhost(mcpPort, listen => listen.Protocols = HttpProtocols.Http1));
 
 var app = builder.Build();
-McpHttpTransport.Map(app, "/mcp", server);
+McpHttpTransport.Map(app, HarnessConstants.Defaults.McpPath, server);
 
 try
 {
@@ -146,7 +146,7 @@ catch (PlatformNotSupportedException)
 await stop.Task;
 Console.WriteLine("하네스 종료 중...");
 lifetime.Cancel();
-using (var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
+using (var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(HarnessConstants.Limits.DaemonShutdownSeconds)))
 {
     try { await app.StopAsync(shutdown.Token); }
     catch (OperationCanceledException) { }
@@ -191,8 +191,8 @@ static HarnessSessionOptions ParseOptions(string[] args) => new()
 {
     Root = GetArg(args, "--root"),
     RunsDir = GetArg(args, "--runs"),
-    AgentPort = int.Parse(GetArg(args, "--agent-port") ?? "9000"),
-    LoginAddress = GetArg(args, "--login") ?? "https://localhost:5400",
+    AgentPort = GetArg(args, "--agent-port") is { } agentPortArg ? int.Parse(agentPortArg) : HarnessConstants.Defaults.AgentPort,
+    LoginAddress = GetArg(args, "--login") ?? HarnessConstants.Defaults.LoginAddress,
     PowerShellPath = GetArg(args, "--powershell"),
 };
 

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    하네스 상수 두 파일.
+    - HarnessConstants.cs: TestHarness 솔루션 안에서만 쓰는 상수(이 솔루션의 모든 프로젝트가 이 프로젝트를 참조).
+    - HarnessSharedConstants.cs: 에이전트(서버/Unity)와 같아야 하는 상수. harness.proto와 같은 길로 퍼진다 - HarnessHost 빌드가 Server 쪽
+      Harness.Contracts/Shared/로 복사하고, Harness.Contracts 빌드가 Unity 테스트 폴더(Generated/)로 복사한다. 원본은 여기 하나.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>TestHarness.Shared</RootNamespace>
+  </PropertyGroup>
+
+</Project>

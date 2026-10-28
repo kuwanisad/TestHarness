@@ -12,10 +12,12 @@
 - `HarnessCore/Scenarios/` - 시나리오 틀(`TH_*`): 노드(TH_Node - 행동/묶음, From/To 상태), 시나리오(TH_Scenario, TH_ScenarioBuilder -
   맥락, 정리 노드, AutoPlan), 노드 실행 문맥(TH_RunContext - 도구 호출, ITH_ToolInvoker), 판정 재료(TH_JudgeContext), 환경 변화 목록
   (TH_EnvironmentChanges), 진행기 + 보고서(TH_ScenarioRunner). `HarnessCore/ToolCallLog.cs` - 모든 도구 호출 기록(actor: ai/runner).
-- `HarnessScenarios/` - 시나리오 정의(`[TH_Scenario]` 클래스 하나 = 노드 그래프 하나)와 공유 노드(`Nodes/TH_Nodes.cs`, 상태 이름 `TH_States`).
-  데몬이 시작할 때 리플렉션으로 모은다.
+- `HarnessScenarios/` - 시나리오 정의(`[TH_Scenario]` 클래스 하나 = 노드 그래프 하나), 공유 노드(`Nodes/TH_Nodes.cs`), 대상(`Targets/`),
+  이 프로젝트의 지식(`Knowledge/TH_ProjectKnowledge.cs` - 명령 영역, 지속 조작 종류, 환경 변화로 볼 에이전트 이벤트, 노드 밖 이상 이벤트).
+  데몬이 시작할 때 리플렉션으로 모은다(지식 `ITH_GameKnowledge`를 먼저 등록하고 시나리오를 모은다). HarnessCore는 틀만 갖고 게임/에이전트 지식은 여기.
+- `HarnessShared/` - 상수 두 파일(아래 "하네스 상수"). 솔루션의 모든 프로젝트가 참조한다.
 - `HarnessDaemon/Mcp/` - MCP(도구 기능만) 직접 구현. 공식 SDK로 바꿀 때 손댈 곳은 `McpToolAttribute.cs` 맨 위 주석.
-  도구 클래스는 `[McpTool]`, `[Description]`, `HarnessException`만 안다 - 전송 방식에 의존하는 코드를 도구 쪽에 넣지 않는다.
+  도구 클래스는 `[McpTool]`, `[Description]`, `ToolError`, `HarnessException`만 안다 - 전송 방식에 의존하는 코드를 도구 쪽에 넣지 않는다.
 - `HarnessHost/`, `HeadlessClient/` - 에이전트 접속 서버, 화면 없는 클라. 스모크 테스트(`*.Smoke`)가 따로 있다.
 
 ## 도구를 추가/변경할 때
@@ -24,18 +26,25 @@
 - 설명(`[Description]`)에는 "언제 쓰는지 / 무엇을 돌려주는지 / 실패하면 무엇을 하면 되는지"를 쓴다 - AI가 읽는 유일한 사용법이다.
 - 행동 도구는 `sinceSeq`(행동 직전 `Timeline.LastSeq`)를 돌려준다.
 - 출력에는 한도를 둔다(목록은 limit + matched/truncated/hint, 긴 문자열은 `HarnessJson.Truncate`). 전문은 실행 폴더 파일로 남긴다.
-- AI가 고칠 수 있는 실패는 `HarnessException(메시지, 힌트)`로 던진다. 힌트는 "그럼 무엇을 하면 되는지" 한 줄.
+- "없음/지금은 안 됨"(그 에이전트가 없음, 서버가 떠 있어 거부, 인자 형식 틀림 ...)은 예외 없이 `return new ToolError(메시지, 힌트)`로 돌려준다
+  (`Mcp/ToolError.cs`). 실제 작업이 실패했을 때(서버 기동 실패 등)만 `HarnessException(메시지, 힌트)`를 던진다 - 둘 다 AI에게 같은 모양
+  (`{error, hint}` + isError)으로 가서 AI가 다음 행동을 정한다. 힌트는 "그럼 무엇을 하면 되는지" 한 줄.
+  도구/에이전트 명령은 리플렉션으로 부르므로 `BindingFlags.DoNotWrapExceptions`를 쓴다(감싸면 VS 디버거가 처리된 예외에서도 멈춤).
 - 열거형은 이름으로 내보낸다(`HarnessJson.Options`). 거부 사유를 문장으로 바꾸지 않는다.
 - 오래 걸려도 그냥 끝까지 기다려 결과를 돌려주면 된다 - 응답 한도(50초)는 MCP 층이 공통으로 처리한다(pending → call_continue,
   `Mcp/McpPendingCalls.cs`). 도구 실행은 요청이 아니라 하네스 종료 신호로만 취소된다(받는 CancellationToken).
 
 ## 명령 영역 (에이전트 명령 이름 `<영역>.<동작>`)
 
-- 영역 목록의 원본은 `HarnessCore/CommandAreas.cs` 하나다. AI는 `agent_list(query=<영역>)`으로 명령을 찾으므로 영역 이름이 곧 검색 키워드다.
+- 영역은 등록된 것만 쓴다 - 모든 에이전트 공통(process, log, status)은 `HarnessCore/CommandAreas.cs`, 이 프로젝트의 에이전트가 가진 영역은
+  `HarnessScenarios/Knowledge/TH_ProjectKnowledge.cs`. AI는 `agent_list(query=<영역>)`으로 명령을 찾으므로 영역 이름이 곧 검색 키워드다.
 - 영역은 "무엇을 다루나"(대상)로 정한다. 동작 단어는 영역이 아니다(`buy.piece`가 아니라 `shop.buy`).
 - 조회 명령은 `state`(한 대상의 현재 상태) 또는 `list`(여러 개 목록)로 이름을 맞춘다.
-- 기존 영역에 안 맞을 때만 새 영역을 만들고, 만들면 `CommandAreas.cs`에 먼저 등록한 뒤 `McpInstructions.md`의 영역 줄과 README도 고친다.
+- 기존 영역에 안 맞을 때만 새 영역을 만들고, 만들면 `TH_ProjectKnowledge`에 먼저 등록한 뒤 `McpInstructions.md`의 영역 줄과 README도 고친다.
   등록 안 된 영역의 명령은 `agent_list`가 `unknownAreas`로 드러낸다.
+- 명령/이벤트 이름은 `HarnessSharedConstants.Commands/Events`에 먼저 적고 하네스·Unity·서버가 그 상수를 쓴다(문자열로 흩어 쓰지 않는다).
+- `process.status`는 게임과 무관한 프로세스 상태만. 노드가 판정에 쓰는 게임 상태는 `status.<무엇>` 조회로 나눠 테스트 실행 전에 대상 쪽에 만들고,
+  노드에 `.Probes(대상, 명령)`으로 선언한다 - 하네스가 노드를 돌리기 전에 대상의 명령 목록과 비교해 없으면 "구현부가 없음"으로 실패시킨다.
 
 ## 시나리오
 
@@ -44,6 +53,8 @@
 - 모든 상호작용은 두 형태뿐이다: (가) 하네스가 질문 → AI가 대답 → 하네스가 기록, (나) AI가 출력 → 하네스가 기록.
   하네스 응답의 `expect`에는 시나리오 진행 행동과 노드 ID만 넣는다 - 기능 도구 목록을 넣지 않는다(기능 도구는 언제든 허용, 기록만).
 - 노드는 하네스가 실행하고(Auto - AI가 하던 도구 호출을 코드로, `TH_RunContext`) 판정한다. AI는 경로만 고른다(node_run, scenario_finish).
+- 노드 실행 코드는 기다릴 때 `TH_RunContext.Cancellation`을 넘긴다 - 일찍 끝내기(실행 중 scenario_finish)가 이 토큰으로 노드를 멈춘다(Stopped).
+  안 넘기면 그 기다림이 끝날 때까지 멈추지 못한다.
 - 판정은 판정 코드로. 판정 코드는 기록(TH_JudgeContext - 노드 구간의 이벤트와 runner의 도구 호출)만 본다 - 판정 중에 새로 묻지 않는다.
   "명령 뒤에 온 이벤트"는 `LastCommand(...).SinceSeq` 기준(효과 이벤트가 호출 기록보다 먼저 들어올 수 있음).
 - 노드 판정은 가능하면 다른 노드의 순서에 의존하지 않게(AI가 경로를 고르므로) - 필요한 값은 응답에서 읽는다(예: Rescale의 settingBefore).
@@ -55,29 +66,30 @@
   - 게임 쪽 조작/판정(명령 이름 등)은 대상 클래스(HarnessScenarios)에 둔다 - HarnessCore의 `TH_Target`은 이름, 종류, 상태 칸만 안다.
   - 공통 동작은 `TH_Client`를 받는 노드, 한 종류만 되는 동작은 그 종류(`TH_UnityClient`)를 받는 노드 - 생략된 동작은 컴파일에서 막는다.
   - 상태는 칸별(`TH_StateMap` - 전역 + 상태 칸을 가진 대상마다). 노드 From/To에 대상을 주면 그 칸, 안 주면 전역 칸.
-  - 노드끼리 넘기는 값도 대상별 칸(`r.Values.For(c)`, 키는 `TH_ValueKeys`). 판정과 기다리기는 대상의 이벤트만(`c.Last(target, ...)`,
+  - 노드끼리 넘기는 값도 대상별 칸(`r.Values.For(c)`, 키는 `HarnessConstants.ValueKeys`). 판정과 기다리기는 대상의 이벤트만(`c.Last(target, ...)`,
     `LastCommand(target, ...)`) - 클라가 여럿이면 출처를 안 가리는 판정은 다른 클라의 이벤트로 통과해 버린다.
-- Unity 씬은 시나리오가 선언한다 - 출발 씬 `s.UnityEditor(bootScene: TH_Scenes.HarnessBoot)`, 플레이어 시작 씬
+- Unity 씬은 시나리오가 선언한다 - 출발 씬 `s.UnityEditor(bootScene: Scenes.HarnessBoot)`, 플레이어 시작 씬
   `s.UnityClient(name, startScene: ...)` / `s.UnityServer(startScene: ...)`. 에디터 브리지, 에이전트, 노드에 씬 이름을 박지 않는다.
   출발 씬을 비워 두는 이유는 `Unity/ARCHITECTURE.md` "HarnessBoot 씬".
-  ⚠ **하네스의 씬 이름(`TH_Scenes`)은 Unity 씬 파일 이름(확장자 뺀 것)과 정확히 같아야 한다**(대소문자 포함) - 에디터 브리지/에이전트가 이름으로
-  찾는다. Unity에서 씬 이름을 바꾸면 `TH_Scenes`도 같이 고친다. 확인은 `editor.scenes`. 씬 이름을 문자열로 흩어 쓰지 말고 `TH_Scenes` 상수로.
+  ⚠ **하네스의 씬 이름(`HarnessConstants.Scenes`)은 Unity 씬 파일 이름(확장자 뺀 것)과 정확히 같아야 한다**(대소문자 포함) - 에디터 브리지/에이전트가 이름으로
+  찾는다. Unity에서 씬 이름을 바꾸면 `HarnessConstants.Scenes`도 같이 고친다. 확인은 `editor.scenes`. 씬 이름을 문자열로 흩어 쓰지 말고 상수로.
 - 시나리오 시작 때 대상에 해 둘 일(예: 메인 에디터에 출발 씬 열기)은 대상의 준비 단계(`TH_Target.Preparation`/`PrepareAsync`)로 - 러너가 첫 노드
   전에 부르고 보고서에 남긴다. 켜 두면 남는 것은 지속 조작으로 등록해 하네스가 시나리오 끝에 되돌린다(`play_start` 종류).
 - 지속 조작 종류마다 "대상이 끊기면 같이 사라지는가"(`EndsWithAgent`)를 정한다 - 프로세스/Play 세션 안의 값(배속 등)은 true, 에디터 설정처럼
   도메인 리로드나 재접속을 지나도 남는 값은 false(끊겨도 추적을 계속해 시나리오 끝에 되돌림).
-- 환경 변화 = 테스트 대상의 변화만(`TH_EnvironmentChanges.cs`에 등록). 데이터를 바꾸는 에이전트 명령이 생기면 거기 `DataCommands`에 넣는다.
+- 환경 변화 = 테스트 대상의 변화만. 하네스 이벤트(서버 기동, 빌드 ...)는 `TH_EnvironmentChanges.cs`, 에이전트 이벤트(Unity 재컴파일)와 데이터를
+  바꾸는 에이전트 명령은 `TH_ProjectKnowledge`에 등록한다(`EnvironmentEvent`, `DataCommand`).
 - 보고서는 하네스가 기록으로 쓴다(AI가 쓰지 않는다).
-- 노드 판정은 노드 구간만 본다. 노드 밖(AI가 노드 사이에 조작/대기)에서 일어난 이상은 `HarnessCore/Scenarios/TH_OutsideEvents.cs`에 등록한 이벤트로
-  모아 보고서 머리에 경고로 올린다(판정은 그대로, 요약 `outsideEvents`). 이상으로 볼 이벤트가 새로 생기면 거기 넣는다.
+- 노드 판정은 노드 구간만 본다. 노드 밖(AI가 노드 사이에 조작/대기)에서 일어난 이상은 등록한 이벤트로 모아 보고서 머리에 경고로 올린다(판정은
+  그대로, 요약 `outsideEvents`). 하네스 연결 끊김은 `TH_OutsideEvents.cs`, 게임 이상(클라 끊김, 사람 탈락)은 `TH_ProjectKnowledge`(`OutsideEvent`).
 - 끝 알림음은 시나리오마다 `s.PlayFinishSound`로 정한다(소리는 하네스가 끝을 판단해 낸다 - AI용 도구로 만들지 않는다).
 - 경계 장애는 `Harness.Agent/Fault`(gRPC 인터셉터 - 게임 코드 변경 없음)와 명령 `fault.*`로 한다. 판정은 `fault.hit`(장애가 실제로 걸렸는지)부터 본다.
   NGO(클라↔인게임 서버)는 Unity 에이전트의 `net.*`(Network Simulator) - 판정은 `net.link_changed`/`net.state`로 조작이 걸렸는지부터.
 - 프레임워크 객체를 감싸는 래퍼(스트림 Writer/Reader, NGO 전송 등)는 인터페이스의 **모든 겹을 그대로 넘긴다** - 기본 구현이 있는 겹(예:
   `IAsyncStreamWriter.WriteAsync(T, CancellationToken)`)을 빠뜨리면 규칙이 없어도 게임 동작이 깨진다(2026-10-23 PC 실행에서 마스터/로그인
   스트림이 실제로 깨짐). 샌드박스 확인은 게임 코드가 실제로 부르는 겹으로 한다.
-- 켜 두면 남는 조작(배속, 설정값, 장애 규칙 ...)은 노드가 직접 되돌리지 않는다(`finally`로 되돌리기 금지) - `HarnessCore/OverrideKinds.cs`에
-  종류를 등록하면 하네스(`OverrideManager`)가 기록을 보고 추적하고 노드 끝/시나리오 끝에 되돌린다. 남겨야 하면 `r.KeepOverrides()`.
+- 켜 두면 남는 조작(배속, 설정값, 장애 규칙 ...)은 노드가 직접 되돌리지 않는다(`finally`로 되돌리기 금지) - `HarnessScenarios/Knowledge`의
+  `TH_OverrideKinds`에 종류를 넣으면(이름은 `HarnessConstants.OverrideKindNames`) 하네스(`OverrideManager`)가 기록을 보고 추적하고 노드 끝/시나리오 끝에 되돌린다. 남겨야 하면 `r.KeepOverrides()`.
   - 종류에는 값을 다시 읽는 조회(`Probe`)도 적는다 - AI가 상태를 볼 때 쓰는 기존 조회 명령(state/list)으로, "사라짐"은 오류 문장이 아니라
     목록에 없음으로. 값이 어느 조회에도 안 나오면 그 대상의 state/list 명령에 칸을 더한다(하네스 전용 조회 명령을 만들지 않는다).
   - 명령 없이 값이 바뀔 수 있는 종류(예: hold=false로 끊은 연결이 재진입으로 이어짐)는 그 값을 알리는 이벤트를 `ValueEvent`로 적는다 - 하네스가 그
@@ -125,14 +137,25 @@ null, 로비 채널 정리 등)는 게임 코드가 `DebugManager.Log(GameLogTyp
 - 무엇을 하네스로 모으고 콘솔에 띄울지는 테스트 쪽이 정한다 - 시나리오의 `s.Logs(collect, console)`를 러너가 시작/대상 접속 때 Unity 에이전트에
   `log.filter`로 보내고 끝나면 전부(기본값)로 되돌린다. 선언 안 하면 전부. 로그는 원인 찾기용이다(판정은 이벤트로).
 - 종류(`GameLogType`)는 `WarningBorder` 앞은 Info, 뒤는 Warning. Error는 쓰지 않는다(Error Pause로 게임이 멈춤). 하네스는 이름을 문자열로 쓰므로
-  (`HarnessConstants.GameLogTypes`) 이름을 바꾸면 양쪽을 같이 고친다.
+  (`HarnessSharedConstants.GameLogTypes`) 이름을 바꾸면 양쪽을 같이 고친다.
 - 정식 빌드: `Log`는 `[Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]`라 호출이 컴파일에서 지워지고 몸체는 `#if` 안이다(열거형과
   빈 선언만 남음). ⚠ 자동 제거가 기대대로 안 될 수 있으니 패키징 전에 호출부를 찾아 수동으로 지울 수 있어야 한다(`Unity/TODO.md`).
 
+**테스트에서만 읽는 게임 내부 값 - `Unity/Assets/Scripts/Test/TestAPIStatics.cs`**: 테스트 코드가 게임 클래스의 내부 상태를 읽어야 하면 게임
+클래스에 테스트용 공개 멤버를 만들지 않는다. 읽을 필드만 `internal`로 열고 `TestAPIStatics`에 읽는 함수를 둔다 - 하네스 명령과 cheat는 이것만
+부른다. 테스트를 걷어낼 때는 그 파일만 지우면 된다(asmdef로 나누면 InternalsVisibleTo 필요 - `TODO.md`). 게임 코드 주석에도 하네스/테스트 코드를
+언급하지 않는다.
+
 ## 하네스 상수
 
-하네스의 상수(문구 형식, 명령/인자/이벤트 이름, 다른 프로세스와 맞춰야 하는 문자열)는 `HarnessCore/HarnessConstants.cs` 한 파일에 모은다 - 코드에
-직접 적지 않는다. 다른 프로세스(Unity, 서버)와 같아야 하는 값은 주석에 상대 위치를 적는다.
+상수(문구 형식, 명령/인자/이벤트 이름, 시간·개수 한도, 기본 주소, 다른 프로세스와 맞춰야 하는 문자열)는 코드에 직접 적지 않고 영역마다 한 파일에 모은다.
+- **하네스(TestHarness 솔루션)**: `HarnessShared/HarnessConstants.cs` 하나. 시나리오/노드는 그룹 이름만으로 쓴다(`States.Ingame`, `Waits.MatchSeconds` -
+  `HarnessScenarios/GlobalUsings.cs`).
+- **하네스와 에이전트가 같아야 하는 값**: `HarnessShared/HarnessSharedConstants.cs`(명령/이벤트 이름, 값 이름, 환경 변수, 연결 규칙, 오류 문구).
+  `harness.proto`와 같은 길로 퍼진다 - HarnessHost 빌드가 `Server/.../Harness.Contracts/Shared/`로, Harness.Contracts 빌드가 Unity
+  `Scripts/Test/Harness/Generated/`로 복사한다. 사본에서 고치지 않는다. Unity에서도 컴파일되므로 using 없이, 최신 문법 없이 둔다.
+- **에이전트에만 있는 값**: Unity `Scripts/Test/Harness/HarnessUnityConstants.cs`, 서버 `Harness.Agent/HarnessAgentConstants.cs`.
+- 판정 기준(화면에 있어야 할 타입 개수 등)은 테스트마다 다르니 그 노드의 판정 코드에 두되, 이름·숫자는 위 상수로 쓴다.
 
 ## 확인
 

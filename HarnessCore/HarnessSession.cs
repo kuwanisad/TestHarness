@@ -11,10 +11,10 @@ public sealed class HarnessSessionOptions
     public string? RunsDir { get; init; }
 
     /// <summary>테스트 대상(서버/Unity) 에이전트가 접속할 포트.</summary>
-    public int AgentPort { get; init; } = 9000;
+    public int AgentPort { get; init; } = HarnessConstants.Defaults.AgentPort;
 
     /// <summary>헤드리스 클라가 접속할 로그인 서버.</summary>
-    public string LoginAddress { get; init; } = "https://localhost:5400";
+    public string LoginAddress { get; init; } = HarnessConstants.Defaults.LoginAddress;
 
     /// <summary>DevTools 스크립트를 실행할 PowerShell. 비면 Windows는 powershell.exe, 그 외는 pwsh.</summary>
     public string? PowerShellPath { get; init; }
@@ -98,9 +98,10 @@ public sealed class HarnessSession : IAsyncDisposable
         var toolCalls = new ToolCallLog(timeline, runs, paths);
         var overrides = new OverrideManager(timeline, toolCalls);
         var scenarios = new TH_ScenarioRunner(timeline, runs, toolCalls, new RunTrace(timeline, logs),
-            new TH_BuildProbe(paths, servers.ServerOrder), overrides, agentLogs.WriteMarker, () => RunEndBlocker(servers, clients));
+            new TH_BuildProbe(paths, servers.ServerOrder), overrides, agentLogs.WriteMarker, () => RunEndBlocker(servers, clients),
+            name => host.Agents.FirstOrDefault(a => a.Name == name && a.IsConnected)?.Commands.Keys.ToArray());
 
-        timeline.RecordHarness("harness.started", $"하네스 시작(에이전트 {host.Address})", new { root = paths.Root });
+        timeline.RecordHarness(HarnessConstants.HarnessEvents.Started, $"하네스 시작(에이전트 {host.Address})", new { root = paths.Root });
         return new HarnessSession(paths, timeline, runs, host, servers, build, clients, logs, toolCalls, overrides, scenarios);
     }
 

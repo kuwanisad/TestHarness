@@ -1,4 +1,3 @@
-using TestHarness.Core;
 using TestHarness.Core.Scenarios;
 using TestHarness.Scenarios.Targets;
 using static TestHarness.Scenarios.Nodes.TH_Nodes;
@@ -15,23 +14,23 @@ public sealed class TH_ReconnectScenario : TH_Scenario
 {
     protected override void Build(TH_ScenarioBuilder s)
     {
-        var client = s.UnityClient("client1", startScene: TH_Scenes.Login);
-        var server = s.UnityServer(startScene: TH_Scenes.ServerBoot);
-        var editor = s.UnityEditor(bootScene: TH_Scenes.HarnessBoot); // 씬 이름은 TH_Scenes - ⚠ Unity 씬 파일 이름과 같아야 함
+        var client = s.UnityClient("client1", startScene: Scenes.Login);
+        var server = s.UnityServer(startScene: Scenes.ServerBoot);
+        var editor = s.UnityEditor(bootScene: Scenes.HarnessBoot); // 씬 이름은 HarnessConstants.Scenes - ⚠ Unity 씬 파일 이름과 같아야 함
 
         s.Context("인게임 중 클라↔인게임 서버 연결이 끊겼을 때를 본다 - 서버/클라의 재접속, 탈주 처리를 고친 뒤 회귀 확인. 기본은 ServersUp → " +
                   "AccountReady@client1 → UnityPlay@client1 → Login@client1 → EnterGame@client1 → BriefDrop@client1 → Reconnect@client1 → " +
-                  "ReconnectPlanning@client1 ×3 → Cut@client1 → Restore@client1 → Cut@client1 → GraceExpire@client1.");
-        s.Context("ReconnectPlanning은 반복 재접속 점검이다(재정비 중, 오브젝트 수가 서버와 맞는지, 트리 장부가 새지 않는지) - 여러 번 연달아 고른다.");
-        s.Context("측정값(2026-10-23): 끊김 감지 약 30초, 클라 재진입 1회·10초, 서버 재접속 유예 약 20초. 재접속이 되면 게임이 그대로 이어져야 한다.");
-        s.Context("Cut 뒤 client1은 Disconnected(서버 유예 약 20초, 클라 재진입 시도 약 10초) - Restore는 Cut 바로 다음에 골라야 재진입 시도 안에 이어진다. " +
+                  $"ReconnectPlanning@client1 ×{TestValues.ReconnectPlanningRepeats} → Cut@client1 → Restore@client1 → Cut@client1 → GraceExpire@client1.");
+        s.Context("ReconnectPlanning은 반복 재접속 점검이다(재정비 중, 받은 오브젝트 수가 서버와 맞는지) - 여러 번 연달아 고른다. 재접속이 되면 게임이 그대로 " +
+                  "이어져야 한다.");
+        s.Context("Cut 뒤 client1은 Disconnected(서버 재접속 유예와 클라 재진입 시도가 짧다) - Restore는 Cut 바로 다음에 골라야 재진입 시도 안에 이어진다. " +
                   "GraceExpire 뒤 클라가 어디로 가야 하는지는 아직 정하지 않았다 - 서버 탈락까지만 판정하고 클라 상태는 메모로 남는다. GraceExpire 뒤에는 끝낸다.");
         s.Precondition("Unity는 Play가 꺼진 상태, 서버도 꺼진 상태(harness_status에 orphans 없음)");
-        s.Precondition("MPPM: server 가상 플레이어 창을 최소화하지 말 것(백그라운드에서 멈추면 하트비트가 끊겨 서버가 스스로 종료함 - 10-23 PC 실행)");
+        s.Precondition("MPPM: server 가상 플레이어 창을 최소화하지 말 것(백그라운드에서 멈추면 하트비트가 끊겨 서버가 스스로 종료함)");
         s.Caution("노드 사이에 net.*로 직접 끊으면 그 결과는 판정에 안 들어간다(보고서의 '노드 밖에서 일어난 일'에 남음)");
         s.PlayFinishSound = true;
         // 로비 정리 로그(인게임 이동/재진입 때마다 남)는 하네스로만 모으고 콘솔에는 안 띄운다.
-        s.Logs(collect: [HarnessConstants.GameLogTypes.LobbyClientDisconnected, HarnessConstants.GameLogTypes.LobbyStreamCancelled], console: []);
+        s.Logs(collect: [GameLogTypes.LobbyClientDisconnected, GameLogTypes.LobbyStreamCancelled], console: []);
         s.AllowAiJudge = false;
 
         s.Node(ServersUp);
@@ -58,9 +57,9 @@ public sealed class TH_ReconnectScenario : TH_Scenario
 
             await p.Run(BriefDrop(client), "자동 실행 - 짧은 끊김");
             await p.Run(Reconnect(client), "자동 실행 - 끊김 감지 뒤 스스로 재진입");
-            for (var i = 1; i <= 3; i++)
+            for (var i = 1; i <= TestValues.ReconnectPlanningRepeats; i++)
             {
-                if ((await p.Run(ReconnectPlanning(client), $"자동 실행 - 재정비 중 반복 재접속 {i}/3")).Result != TH_Result.Pass) break;
+                if ((await p.Run(ReconnectPlanning(client), $"자동 실행 - 재정비 중 반복 재접속 {i}/{TestValues.ReconnectPlanningRepeats}")).Result != TH_Result.Pass) break;
             }
             if ((await p.Run(Cut(client), "자동 실행 - 끊어 두기")).Result != TH_Result.Pass) return;
             if ((await p.Run(Restore(client), "자동 실행 - 다시 잇기(재진입 시도 안에)")).Result != TH_Result.Pass) return;

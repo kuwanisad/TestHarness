@@ -11,13 +11,11 @@ namespace TestHarness.Daemon.Tools;
 /// </summary>
 public sealed class ObserveTools
 {
-    private const int MaxWaitSeconds = 300;
-
     private readonly HarnessSession _session;
 
     public ObserveTools(HarnessSession session) => _session = session;
 
-    [McpTool("wait_for")]
+    [McpTool(HarnessConstants.Tools.WaitFor)]
     [Description("조건에 맞는 이벤트가 올 때까지 기다린다(sleep 대신 이것을 쓸 것). sinceSeq 뒤에 이미 와 있으면 즉시 돌려준다. " +
                  "sinceSeq는 행동 도구가 돌려준 값을 넣을 것 - 안 주면 '지금 이후'만 본다. 시간 초과면 matched=false와 함께 " +
                  "그동안 온 이벤트(eventsSince)와, 혹시 sinceSeq 전에 이미 왔던 같은 조건의 이벤트(matchedBefore)를 돌려준다. " +
@@ -34,10 +32,12 @@ public sealed class ObserveTools
     {
         var filter = new EventFilter(source, names, playerId, contains);
         var since = sinceSeq ?? _session.Timeline.LastSeq;
-        var timeout = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 1, MaxWaitSeconds));
+        var timeout = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 1, HarnessConstants.Limits.MaxWaitSeconds));
 
         var started = DateTimeOffset.UtcNow;
-        var matched = await _session.Timeline.WaitForAsync(filter, since, timeout, ct);
+        var matched = await _session.Timeline.WaitForAsync(filter, since, timeout, ct)
+                      // 시간 초과와 도착이 겹친 경우 - 아래 단서에 그 이벤트가 들어가는데 matched=false로 답하지 않게 한 번 더 본다.
+                      ?? _session.Timeline.Query(filter, since, 1, fromEnd: false).Events.FirstOrDefault();
         var waited = Math.Round((DateTimeOffset.UtcNow - started).TotalSeconds, 1);
 
         if (matched != null)
@@ -47,8 +47,8 @@ public sealed class ObserveTools
 
         // 시간 초과: 무엇이 대신 왔는지(같은 출처 우선)와, 이미 지나간 같은 조건 이벤트를 보여준다.
         var sinceFilter = new EventFilter(Source: source);
-        var (eventsSince, totalSince) = _session.Timeline.Query(sinceFilter, since, 20, fromEnd: true);
-        var (before, _) = _session.Timeline.Query(filter, 0, 3, fromEnd: true);
+        var (eventsSince, totalSince) = _session.Timeline.Query(sinceFilter, since, HarnessConstants.Limits.WaitForEventsSince, fromEnd: true);
+        var (before, _) = _session.Timeline.Query(filter, 0, HarnessConstants.Limits.WaitForMatchedBefore, fromEnd: true);
         var matchedBefore = before.Where(e => e.Seq <= since).Select(EventView.From).ToList();
 
         return new
@@ -65,7 +65,7 @@ public sealed class ObserveTools
         };
     }
 
-    [McpTool("events_query")]
+    [McpTool(HarnessConstants.Tools.EventsQuery)]
     [Description("타임라인(에이전트/클라/하네스 이벤트를 한 줄로 합친 것)을 조회한다. 기본은 조건에 맞는 마지막 50개(시간순).")]
     public object EventsQuery(
         [Description("출처(비우면 전부)")] string? source = null,
@@ -90,7 +90,7 @@ public sealed class ObserveTools
         };
     }
 
-    [McpTool("logs_query")]
+    [McpTool(HarnessConstants.Tools.LogsQuery)]
     [Description("지금 실행(또는 runId 실행)의 서버 로그와 Unity 로그(logs/<에이전트>.log)를 걸러서 본다. 기본은 Information 이상, 조건에 맞는 마지막 50줄(여러 서버를 시각순으로 합침). " +
                  "playerId나 roomId를 contains에 넣으면 그 사람/방 관련 줄만. 시각은 UTC HH:mm:ss.fff(이벤트와 같은 형식).")]
     public object LogsQuery(
@@ -103,8 +103,13 @@ public sealed class ObserveTools
         [Description("true면 마지막 limit줄, false면 처음 limit줄")] bool fromEnd = true,
         [Description("지난 실행 id(비우면 지금 실행)")] string? runId = null)
     {
-        var result = _session.Logs.Query(new LogQuery(server, minLevel, contains, ParseTime(sinceUtc, "sinceUtc"),
-            ParseTime(untilUtc, "untilUtc"), limit, fromEnd), runId);
+        if (!TryParseTime(sinceUtc, nameof(sinceUtc), out var since, out var error) ||
+            !TryParseTime(untilUtc, nameof(untilUtc), out var until, out error))
+        {
+            return error!;
+        }
+
+        var result = _session.Logs.Query(new LogQuery(server, minLevel, contains, since, until, limit, fromEnd), runId);
 
         return new
         {
@@ -117,9 +122,12 @@ public sealed class ObserveTools
         };
     }
 
-    private static DateTimeOffset? ParseTime(string? text, string name)
+    // 비었으면 value=null로 성공. 읽지 못하면 false + error(도구가 그대로 돌려줌).
+    private static bool TryParseTime(string? text, string name, out DateTimeOffset? value, out ToolError? error)
     {
-        if (string.IsNullOrWhiteSpace(text)) return null;
+        value = null;
+        error = null;
+        if (string.IsNullOrWhiteSpace(text)) return true;
 
         // 시각만 주면(HH:mm:ss[.fff]) 오늘 UTC 날짜로 본다. 파서에 맡기면 "오늘"이 로컬 날짜가 돼서, 한국 시간
         // 00~09시(UTC로는 전날)에 하루가 어긋난다. 미래가 되면 어제로 본다(자정 직후 직전 로그를 볼 때).
@@ -127,15 +135,18 @@ public sealed class ObserveTools
                 System.Globalization.CultureInfo.InvariantCulture, out var timeOfDay))
         {
             var candidate = new DateTimeOffset(DateTime.UtcNow.Date + timeOfDay, TimeSpan.Zero);
-            return candidate > DateTimeOffset.UtcNow.AddMinutes(1) ? candidate.AddDays(-1) : candidate;
+            value = candidate > DateTimeOffset.UtcNow.AddMinutes(1) ? candidate.AddDays(-1) : candidate;
+            return true;
         }
 
         if (DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var value))
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsed))
         {
-            return value;
+            value = parsed;
+            return true;
         }
 
-        throw new HarnessException($"{name} '{text}'을(를) 시각으로 읽지 못함", "ISO 8601 형식(예: 2026-10-16T11:30:00Z)");
+        error = new ToolError($"{name} '{text}'을(를) 시각으로 읽지 못함", "ISO 8601 형식(예: 2026-10-16T11:30:00Z)");
+        return false;
     }
 }
